@@ -6,9 +6,19 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && node scripts/copy-hook.cjs",
+    "dist": "npm run build && electron-builder --win",
     "start": "electron-vite preview",
     "test": "vitest run",
     "postinstall": "electron-rebuild -f -w @homebridge/node-pty-prebuilt-multiarch"
+  },
+  "build": {
+    "appId": "com.arw.agentmanager",
+    "productName": "Agent Manager",
+    "files": ["out/**/*"],
+    "extraResources": [
+      { "from": "out/main/hook-script", "to": "hook-script" }
+    ],
+    "win": { "target": "nsis" }
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",

@@ -25,8 +25,15 @@ import { homedir } from 'os'
 
 const settingsPath = () => join(homedir(), '.claude', 'settings.json')
 
+function hookScriptPath(): string {
+  const { app } = require('electron') as typeof import('electron')
+  return app.isPackaged
+    ? join(process.resourcesPath, 'hook-script', 'arw-hook.cjs')
+    : join(__dirname, 'hook-script', 'arw-hook.cjs')
+}
+
 export function installHooks() {
-  const scriptPath = join(__dirname, 'hook-script', 'arw-hook.cjs')
+  const scriptPath = hookScriptPath()
   const command = `node "${scriptPath}" "${'${CLAUDE_HOOK_EVENT}'}"`
   const p = settingsPath()
   const dir = dirname(p)
