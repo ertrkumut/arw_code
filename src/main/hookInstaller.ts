@@ -34,7 +34,7 @@ function hookScriptPath(): string {
 
 export function installHooks() {
   const scriptPath = hookScriptPath()
-  const command = `node "${scriptPath}" "${'${CLAUDE_HOOK_EVENT}'}"`
+  const command = `node "${scriptPath}"`
   const p = settingsPath()
   const dir = dirname(p)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
