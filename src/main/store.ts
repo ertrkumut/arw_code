@@ -41,3 +41,22 @@ export function deserialize(raw: string): PersistedState {
     return parsed as PersistedState
   } catch { return emptyState() }
 }
+
+import { join } from 'path'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
+
+function userDataFile(): string {
+  const { app } = require('electron') as typeof import('electron')
+  return join(app.getPath('userData'), 'agent-manager-state.json')
+}
+
+export function loadState(): PersistedState {
+  const f = userDataFile()
+  return existsSync(f) ? deserialize(readFileSync(f, 'utf8')) : emptyState()
+}
+
+let timer: NodeJS.Timeout | null = null
+export function saveStateDebounced(s: PersistedState, ms = 300): void {
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(() => writeFileSync(userDataFile(), serialize(s)), ms)
+}

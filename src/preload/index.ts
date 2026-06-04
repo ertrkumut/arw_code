@@ -22,7 +22,10 @@ const api = {
     const h = (_e: IpcRendererEvent, p: { id: string; state: string }) => cb(p)
     ipcRenderer.on(IPC.statusUpdate, h)
     return () => ipcRenderer.removeListener(IPC.statusUpdate, h)
-  }
+  },
+  loadStore: () => ipcRenderer.invoke(IPC.storeLoad),
+  saveStore: (state: unknown) => ipcRenderer.send(IPC.storeSave, state),
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.pickFolder),
 }
 
 contextBridge.exposeInMainWorld('arw', api)
