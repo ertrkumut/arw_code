@@ -1,44 +1,35 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useApp } from '../store/appStore'
-import { gridDims } from '@shared/tiling'
 import { oceanic } from '../theme'
-import { TerminalPane } from './TerminalPane'
+import { ProjectGrid } from './ProjectGrid'
 
 export function TerminalGrid() {
-  const { projects, selectedProjectId, addTerminal } = useApp()
-  const [focused, setFocused] = useState<string | null>(null)
-  const project = projects.find(p => p.id === selectedProjectId)
+  const { projects, selectedProjectId } = useApp()
+  const [activated, setActivated] = useState<string[]>([])
 
-  if (!project) return <Empty text="Select a project" />
+  // Mark a project activated the first time it's selected (lazy mount, then keep mounted).
+  useEffect(() => {
+    if (selectedProjectId && !activated.includes(selectedProjectId)) {
+      setActivated(a => [...a, selectedProjectId])
+    }
+  }, [selectedProjectId, activated])
 
-  const terms = [...project.terminals].sort((a, b) => a.order - b.order)
-  const { rows, cols } = gridDims(terms.length)
-  const effectiveFocus = focused && terms.some(t => t.id === focused) ? focused : (terms[0]?.id ?? null)
+  // Render grids for projects that have been activated AND still exist; also include the
+  // currently-selected project synchronously to avoid a first-render flash before the effect runs.
+  const toRender = projects.filter(p => activated.includes(p.id) || p.id === selectedProjectId)
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', color: oceanic.textSecondary }}>
-        <span>{project.name}</span>
-        <button onClick={() => addTerminal(project.id)} style={{
-          color: oceanic.accent, background: 'transparent', border: `1px solid ${oceanic.accent}`,
-          borderRadius: 6, padding: '2px 8px', cursor: 'pointer'
-        }}>＋ new terminal</button>
-      </div>
-      {terms.length === 0 ? <Empty text="No terminals yet — click ＋ new terminal" /> : (
-        <div style={{
-          flex: 1, display: 'grid', gap: 8, padding: 8, minHeight: 0,
-          gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)`
-        }}>
-          {terms.map(t => (
-            <TerminalPane key={t.id} projectId={project.id} termId={t.id} name={t.name}
-              cwd={project.path} focused={effectiveFocus === t.id} onFocus={() => setFocused(t.id)} />
-          ))}
+    <div style={{ height: '100%', position: 'relative' }}>
+      {!selectedProjectId && (
+        <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: oceanic.textMuted }}>
+          Select a project
         </div>
       )}
+      {toRender.map(p => (
+        <div key={p.id} style={{ height: '100%', display: p.id === selectedProjectId ? 'block' : 'none' }}>
+          <ProjectGrid project={p} />
+        </div>
+      ))}
     </div>
   )
-}
-
-function Empty({ text }: { text: string }) {
-  return <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: oceanic.textMuted }}>{text}</div>
 }
