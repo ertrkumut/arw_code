@@ -1,0 +1,36 @@
+<h2>UI Layout</h2>
+<p class="subtitle">Section 2 of 4. The sidebar is your navigator + status board; the main area shows the active terminal full-size.</p>
+
+<div style="display:flex; height:300px; border:1px solid #333; border-radius:8px; overflow:hidden; margin-top:12px; font-family:monospace;">
+  <div style="width:34%; background:#1e1e2e; padding:12px; border-right:1px solid #333; line-height:1.8;">
+    <div style="display:flex; justify-content:space-between; opacity:.7;"><b>PROJECTS</b> <span style="border:1px solid #555;border-radius:4px;padding:0 6px;">+ Add</span></div>
+    <hr style="border-color:#333;">
+    <div>▾ 📁 piros-api &nbsp;<span style="opacity:.5;">＋</span></div>
+    <div style="background:#33334d;border-radius:4px;padding:2px 6px;">&nbsp;&nbsp;🟡 fix-auth-bug</div>
+    <div>&nbsp;&nbsp;🟢 write-tests</div>
+    <div>▾ 📁 web-frontend &nbsp;<span style="opacity:.5;">＋</span></div>
+    <div>&nbsp;&nbsp;⚪ refactor-nav</div>
+    <div>&nbsp;&nbsp;🔴 build-ci</div>
+    <div style="opacity:.6;">▸ 📁 ARWCode</div>
+  </div>
+  <div style="width:66%; background:#11111b; display:flex; flex-direction:column;">
+    <div style="background:#181825; padding:8px 12px; border-bottom:1px solid #333; display:flex; justify-content:space-between;">
+      <span>📁 piros-api &nbsp;▸&nbsp; 🟡 fix-auth-bug</span>
+      <span style="opacity:.6;">⟳ restart &nbsp; ✕ close</span>
+    </div>
+    <div style="padding:12px; line-height:1.6; opacity:.85;">
+      $ claude<br>
+      &nbsp;<br>
+      ● I found the auth bug in middleware.ts...<br>
+      &nbsp;<br>
+      <span style="color:#f5c542;">Do you want to proceed? ❯ 1. Yes &nbsp; 2. No</span><br>
+      <span style="opacity:.5;">▏</span>
+    </div>
+  </div>
+</div>
+
+<ul style="margin-top:14px; line-height:1.7;">
+  <li><b>Sidebar:</b> projects collapse/expand · each row a terminal with a live status dot · <b>+ Add</b> project button · small <b>＋</b> per project to spawn a new terminal · right-click to rename/close.</li>
+  <li><b>Main area:</b> one active terminal, full height · header breadcrumb <code>project ▸ terminal</code> · restart / close buttons.</li>
+  <li><b>Switching:</b> click any terminal in the sidebar to bring it forward. No separate tab bar — the sidebar <i>is</i> the tab list.</li>
+</ul>

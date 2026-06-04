@@ -1,0 +1,38 @@
+<h2>Auto-tiling grid</h2>
+<p class="subtitle">Terminals auto-arrange by count. Question in terminal: which terminals fill the grid?</p>
+
+<div style="display:flex; gap:16px; margin-top:12px; font-family:monospace; text-align:center;">
+  <div>
+    <div style="opacity:.6;">1 terminal</div>
+    <div style="width:120px;height:90px;border:1px solid #3a7;border-radius:6px;background:#11111b;"></div>
+  </div>
+  <div>
+    <div style="opacity:.6;">2 terminals</div>
+    <div style="width:120px;height:90px;border-radius:6px;display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+      <div style="border:1px solid #3a7;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+    </div>
+  </div>
+  <div>
+    <div style="opacity:.6;">4 → 2×2</div>
+    <div style="width:120px;height:90px;border-radius:6px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:4px;">
+      <div style="border:1px solid #f5c542;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #f56;border-radius:4px;background:#11111b;"></div>
+    </div>
+  </div>
+  <div>
+    <div style="opacity:.6;">6 → 3×2</div>
+    <div style="width:150px;height:90px;border-radius:6px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:4px;">
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #3a7;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+      <div style="border:1px solid #555;border-radius:4px;background:#11111b;"></div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;">The colored border = the focused pane (keystrokes go there). Status colors still show per pane.</p>

@@ -1,0 +1,49 @@
+<h2>Full window — cards left, terminals fill the rest</h2>
+<p class="subtitle">Sidebar = workspace cards only. Grid = selected project's terminals. Status lives in two places.</p>
+
+<div style="display:flex; height:300px; border:1px solid #232735; border-radius:10px; overflow:hidden; margin-top:12px; font-family:system-ui;">
+
+  <!-- sidebar: cards only -->
+  <div style="width:30%; background:#16181F; padding:12px; border-right:1px solid #232735;">
+    <div style="color:#717CB4; font-size:11px; letter-spacing:.08em; margin-bottom:8px;">PROJECTS &nbsp;<span style="float:right; color:#80CBC4;">+ Add</span></div>
+
+    <div style="background:#1F2233; border:1px solid #80CBC4; border-radius:8px; padding:9px 11px; margin-bottom:8px; position:relative;">
+      <span style="position:absolute; right:10px; top:10px; color:#FFCB6B;">●</span>
+      <div style="color:#EEEFFF; font-size:13px;">piros-api</div>
+      <div style="color:#717CB4; font-size:10px;">D:\PIROS\piros-api</div>
+    </div>
+
+    <div style="background:#181A22; border:1px solid #232735; border-radius:8px; padding:9px 11px; margin-bottom:8px; position:relative;">
+      <span style="position:absolute; right:10px; top:10px; color:#F07178;">●</span>
+      <div style="color:#C7CBE0; font-size:13px;">web-frontend</div>
+      <div style="color:#717CB4; font-size:10px;">D:\PIROS\web-frontend</div>
+    </div>
+
+    <div style="background:#181A22; border:1px solid #232735; border-radius:8px; padding:9px 11px;">
+      <div style="color:#C7CBE0; font-size:13px;">ARWCode</div>
+      <div style="color:#717CB4; font-size:10px;">D:\PIROS\AI\ARWCode</div>
+    </div>
+  </div>
+
+  <!-- grid: terminals for selected project -->
+  <div style="width:70%; background:#0F111A; padding:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+    <div style="border:1px solid #80CBC4; border-radius:8px; overflow:hidden; display:flex; flex-direction:column;">
+      <div style="background:#1F2233; padding:5px 9px; font-size:11px; color:#A6ACCD; display:flex; justify-content:space-between;">
+        <span><span style="color:#FFCB6B;">●</span> fix-auth-bug</span><span style="color:#717CB4;">⟳ ✕</span>
+      </div>
+      <div style="padding:8px; font-family:monospace; font-size:10px; color:#A6ACCD;">› claude<br><span style="color:#FFCB6B;">Proceed? ❯ Yes / No</span></div>
+    </div>
+    <div style="border:1px solid #232735; border-radius:8px; overflow:hidden; display:flex; flex-direction:column;">
+      <div style="background:#1F2233; padding:5px 9px; font-size:11px; color:#A6ACCD; display:flex; justify-content:space-between;">
+        <span><span style="color:#C3E88D;">●</span> write-tests</span><span style="color:#717CB4;">⟳ ✕</span>
+      </div>
+      <div style="padding:8px; font-family:monospace; font-size:10px; color:#A6ACCD;">› claude<br><span style="opacity:.6;">● working…</span></div>
+    </div>
+  </div>
+</div>
+
+<ul style="margin-top:14px; line-height:1.7;">
+  <li><b>Sidebar card</b> shows an <b>aggregate dot</b> — amber if any terminal in that project needs you, red if one errored. (web-frontend is red even though you're viewing piros-api.)</li>
+  <li><b>Each grid pane header</b> shows that terminal's name + its own status dot + restart/close.</li>
+  <li>Click a card → the grid swaps to that project's terminals.</li>
+</ul>

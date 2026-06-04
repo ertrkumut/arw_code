@@ -1,0 +1,31 @@
+<h2>Tech stack — three ways to build it</h2>
+<p class="subtitle">All three embed real Windows terminals (ConPTY) running `claude`. They differ in language, weight, and ecosystem.</p>
+
+<div class="split" style="display:flex; gap:12px; margin-top:12px;">
+  <div style="flex:1; background:#11111b; border:1px solid #3a7; border-radius:8px; padding:14px;">
+    <h3>A · Electron + xterm.js + node-pty <span style="color:#3a7">★ rec</span></h3>
+    <p style="opacity:.85">The exact stack VS Code's terminal uses.</p>
+    <p class="label" style="color:#3a7">Pros</p>
+    <p style="opacity:.8">Proven terminal rendering · rock-solid ConPTY support · huge ecosystem · fast to build · easy hook/IPC watching in Node</p>
+    <p class="label" style="color:#f56">Cons</p>
+    <p style="opacity:.8">Heavier install (~150MB) · higher RAM</p>
+  </div>
+  <div style="flex:1; background:#11111b; border:1px solid #333; border-radius:8px; padding:14px;">
+    <h3>B · Tauri (Rust) + xterm.js</h3>
+    <p style="opacity:.85">Web UI, Rust backend, portable-pty crate.</p>
+    <p class="label" style="color:#3a7">Pros</p>
+    <p style="opacity:.8">Tiny binary (~10MB) · low RAM · modern · same xterm.js rendering</p>
+    <p class="label" style="color:#f56">Cons</p>
+    <p style="opacity:.8">Write Rust for PTY/IPC · smaller ecosystem · more setup friction</p>
+  </div>
+  <div style="flex:1; background:#11111b; border:1px solid #333; border-radius:8px; padding:14px;">
+    <h3>C · .NET WPF / WinUI (native)</h3>
+    <p style="opacity:.85">Pure Windows-native, no web layer.</p>
+    <p class="label" style="color:#3a7">Pros</p>
+    <p style="opacity:.8">Native feel · smallest footprint · no Chromium</p>
+    <p class="label" style="color:#f56">Cons</p>
+    <p style="opacity:.8">Terminal emulation is the hard part — fewer mature controls than xterm.js · most custom work</p>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;">My recommendation: <b style="color:#3a7">A — Electron</b>. It's the shortest path to a reliable terminal on Windows, and the status-via-hooks piece is trivial in Node.</p>

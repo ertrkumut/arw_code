@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "composite": true, "module": "ESNext", "moduleResolution": "Bundler" },
+  "include": ["electron.vite.config.ts"]
+}

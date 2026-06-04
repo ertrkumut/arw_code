@@ -1,0 +1,26 @@
+<h2>Which agent states should the sidebar show?</h2>
+<p class="subtitle">These are the badges/colors that would appear next to each terminal so you know who needs you. Question is in the terminal — here's what each could look like.</p>
+
+<div class="section">
+  <div style="font-family:monospace; background:#11111b; border:1px solid #333; border-radius:8px; padding:16px; line-height:2.2;">
+    <div>🟢 <b>Working</b> <span style="opacity:.6">— Claude is actively generating / running tools</span></div>
+    <div>🟡 <b>Needs you</b> <span style="opacity:.6">— waiting on a permission prompt or a question (blocked!)</span></div>
+    <div>⚪ <b>Idle / done</b> <span style="opacity:.6">— finished its turn, waiting for your next prompt</span></div>
+    <div>🔴 <b>Error / exited</b> <span style="opacity:.6">— the process crashed or the command failed</span></div>
+    <div>🔵 <b>Unread output</b> <span style="opacity:.6">— produced output since you last looked at this tab</span></div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="label">In context — sidebar with badges</p>
+  <div style="font-family:monospace; background:#1e1e2e; border:1px solid #333; border-radius:8px; padding:16px; line-height:2.1; width:320px;">
+    📁 piros-api<br>
+    &nbsp;&nbsp;🟡 fix-auth-bug <span style="color:#f5c542">← needs you</span><br>
+    &nbsp;&nbsp;🟢 write-tests<br>
+    📁 web-frontend<br>
+    &nbsp;&nbsp;⚪ refactor-nav<br>
+    &nbsp;&nbsp;🔴 build-ci <span style="color:#f56">← crashed</span>
+  </div>
+</div>
+
+<p class="subtitle">👉 Pick the states that matter in the terminal.</p>

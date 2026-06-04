@@ -1,0 +1,24 @@
+<h2>Architecture — how the pieces fit</h2>
+<p class="subtitle">Section 1 of 4. Details in the terminal; here's the shape of it.</p>
+
+<div style="font-family:monospace; background:#11111b; border:1px solid #333; border-radius:8px; padding:18px; line-height:1.9; margin-top:12px;">
+<b style="color:#7 aa">ELECTRON RENDERER (UI)</b><br>
+&nbsp;&nbsp;Sidebar (projects + terminals + status badges)<br>
+&nbsp;&nbsp;Terminal panes — xterm.js<br>
+&nbsp;&nbsp;&nbsp;&nbsp;│ &nbsp; ▲<br>
+&nbsp;&nbsp;keystrokes │ &nbsp; │ output + status<br>
+&nbsp;&nbsp;&nbsp;&nbsp;▼ &nbsp; │ &nbsp;(IPC)<br>
+<b style="color:#3a7">ELECTRON MAIN (Node)</b><br>
+&nbsp;&nbsp;• PTY Manager — node-pty, one ConPTY per terminal<br>
+&nbsp;&nbsp;&nbsp;&nbsp;↳ spawns shell in project folder, auto-runs `claude`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;↳ injects ARW_TERMINAL_ID + ARW_EVENT_URL into env<br>
+&nbsp;&nbsp;• Status Bridge — tiny local HTTP server (127.0.0.1)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;↳ receives hook events, maps to terminal, updates state<br>
+&nbsp;&nbsp;• Store — projects + layout saved to disk (JSON)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;↳ ▲<br>
+<b style="color:#f5c542">CLAUDE CODE HOOKS</b> (configured once by the app)<br>
+&nbsp;&nbsp;Notification→needs-you · Stop→idle · PreToolUse→working<br>
+&nbsp;&nbsp;each hook POSTs {id, state} to ARW_EVENT_URL ──────┘<br>
+</div>
+
+<p class="subtitle" style="margin-top:14px;">Key idea: status comes from <b>Claude Code's own hooks</b>, not from guessing by scraping terminal text. Reliable and future-proof.</p>
