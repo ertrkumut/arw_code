@@ -13,7 +13,7 @@
   },
   "build": {
     "appId": "com.arw.agentmanager",
-    "productName": "Agent Manager",
+    "productName": "ARWCode",
     "files": [
       "out/**/*"
     ],

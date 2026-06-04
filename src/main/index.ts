@@ -9,7 +9,7 @@ let win: BrowserWindow | null = null
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1280, height: 800, backgroundColor: '#0F111A',
+    width: 1280, height: 800, backgroundColor: '#0F111A', title: 'ARWCode',
     webPreferences: { preload: join(__dirname, '../preload/index.js') }
   })
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
