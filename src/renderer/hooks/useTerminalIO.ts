@@ -21,11 +21,12 @@ export function useTerminalIO(id: string, cwd: string) {
     term.onData((d) => window.arw.input(id, d))
     const offData = window.arw.onData(({ id: tid, data }) => { if (tid === id) term.write(data) })
 
-    const onResize = () => { fit.fit(); window.arw.resize(id, term.cols, term.rows) }
-    window.addEventListener('resize', onResize)
+    const refit = () => { fit.fit(); window.arw.resize(id, term.cols, term.rows) }
+    const ro = new ResizeObserver(() => refit())
+    if (elRef.current) ro.observe(elRef.current)
     return () => {
       offData()
-      window.removeEventListener('resize', onResize)
+      ro.disconnect()
       window.arw.kill(id)
       term.dispose()
     }

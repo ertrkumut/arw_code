@@ -21,7 +21,7 @@ export function TerminalPane({ projectId, termId, name, cwd, focused, onFocus }:
       }}>
         <span><span style={{ color: oceanic.status[state] }}>●</span> {name}</span>
         <span style={{ color: oceanic.textMuted, cursor: 'pointer' }}
-          onClick={() => removeTerminal(projectId, termId)}>✕</span>
+          onClick={(e) => { e.stopPropagation(); removeTerminal(projectId, termId) }}>✕</span>
       </div>
       <div ref={ref} style={{ flex: 1, minHeight: 0, background: oceanic.bgDeep }} />
     </div>

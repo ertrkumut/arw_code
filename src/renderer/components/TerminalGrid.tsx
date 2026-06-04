@@ -13,6 +13,7 @@ export function TerminalGrid() {
 
   const terms = [...project.terminals].sort((a, b) => a.order - b.order)
   const { rows, cols } = gridDims(terms.length)
+  const effectiveFocus = focused && terms.some(t => t.id === focused) ? focused : (terms[0]?.id ?? null)
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -30,7 +31,7 @@ export function TerminalGrid() {
         }}>
           {terms.map(t => (
             <TerminalPane key={t.id} projectId={project.id} termId={t.id} name={t.name}
-              cwd={project.path} focused={focused === t.id} onFocus={() => setFocused(t.id)} />
+              cwd={project.path} focused={effectiveFocus === t.id} onFocus={() => setFocused(t.id)} />
           ))}
         </div>
       )}
