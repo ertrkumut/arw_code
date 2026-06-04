@@ -19,11 +19,16 @@ export function useTerminalIO(id: string, cwd: string) {
 
     window.arw.spawn(id, cwd, term.cols, term.rows)
     term.onData((d) => window.arw.input(id, d))
-    window.arw.onData(({ id: tid, data }) => { if (tid === id) term.write(data) })
+    const offData = window.arw.onData(({ id: tid, data }) => { if (tid === id) term.write(data) })
 
     const onResize = () => { fit.fit(); window.arw.resize(id, term.cols, term.rows) }
     window.addEventListener('resize', onResize)
-    return () => { window.removeEventListener('resize', onResize); window.arw.kill(id); term.dispose() }
+    return () => {
+      offData()
+      window.removeEventListener('resize', onResize)
+      window.arw.kill(id)
+      term.dispose()
+    }
   }, [id, cwd])
 
   return elRef
