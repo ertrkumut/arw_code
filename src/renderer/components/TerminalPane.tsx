@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { useTerminalIO } from '../hooks/useTerminalIO'
-import { oceanic } from '../theme'
 import { useApp } from '../store/appStore'
+import { Dot } from './Dot'
 import type { TermState } from '@shared/types'
 
 function PaneBody({ termId, cwd }: { termId: string; cwd: string }) {
   const ref = useTerminalIO(termId, cwd)
-  return <div ref={ref} style={{ flex: 1, minHeight: 0, background: oceanic.bgDeep }} />
+  return <div ref={ref} style={{ flex: 1, minHeight: 0, background: 'var(--bg-terminal)' }} />
 }
 
 export function TerminalPane({ projectId, termId, name, cwd, focused, onFocus }:
@@ -24,26 +24,16 @@ export function TerminalPane({ projectId, termId, name, cwd, focused, onFocus }:
   const retry = () => { setError(null); setAttempt(a => a + 1) }
 
   return (
-    <div onMouseDown={onFocus} style={{
-      display: 'flex', flexDirection: 'column', border: `1px solid ${focused ? oceanic.accent : oceanic.border}`,
-      borderRadius: 8, overflow: 'hidden', minHeight: 0
-    }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        background: oceanic.bgRaised, padding: '5px 9px', fontSize: 12, color: oceanic.textSecondary
-      }}>
-        <span><span style={{ color: oceanic.status[state] }}>●</span> {name}</span>
-        <span style={{ color: oceanic.textMuted, cursor: 'pointer' }}
-          onClick={(e) => { e.stopPropagation(); removeTerminal(projectId, termId) }}>✕</span>
+    <div className={`pane${focused ? ' focused' : ''}`} onMouseDown={onFocus}>
+      <div className="pane-header">
+        <span className="pane-title"><Dot state={state} /><span className="tname">{name}</span></span>
+        <span className="pane-x" onClick={(e) => { e.stopPropagation(); removeTerminal(projectId, termId) }}>✕</span>
       </div>
       {error ? (
-        <div style={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', background: oceanic.bgDeep, padding: 16, textAlign: 'center' }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', padding: 16, textAlign: 'center' }}>
           <div>
-            <div style={{ color: oceanic.status.error, fontSize: 13, marginBottom: 10, wordBreak: 'break-word' }}>{error}</div>
-            <button onClick={(e) => { e.stopPropagation(); retry() }} style={{
-              color: oceanic.accent, background: 'transparent', border: `1px solid ${oceanic.accent}`,
-              borderRadius: 6, padding: '4px 12px', cursor: 'pointer'
-            }}>Retry</button>
+            <div style={{ color: 'var(--error)', fontSize: 12.5, marginBottom: 12, wordBreak: 'break-word' }}>{error}</div>
+            <button className="btn-soft" onClick={(e) => { e.stopPropagation(); retry() }}>Retry</button>
           </div>
         </div>
       ) : (

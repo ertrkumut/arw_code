@@ -9,8 +9,21 @@ export function useTerminalIO(id: string, cwd: string) {
 
   useEffect(() => {
     const term = new Terminal({
-      fontFamily: 'Consolas, monospace', fontSize: 13, cursorBlink: true,
-      theme: { background: oceanic.bgDeep, foreground: oceanic.textSecondary }
+      fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
+      fontSize: 13, lineHeight: 1.35, fontWeight: 400, fontWeightBold: 600,
+      cursorBlink: true,
+      theme: {
+        background: oceanic.bgTerminal,
+        foreground: '#C8CEDE',
+        cursor: oceanic.accent,
+        cursorAccent: oceanic.bgTerminal,
+        selectionBackground: oceanic.selection,
+        black: oceanic.ansi.black, red: oceanic.ansi.red, green: oceanic.ansi.green, yellow: oceanic.ansi.yellow,
+        blue: oceanic.ansi.blue, magenta: oceanic.ansi.magenta, cyan: oceanic.ansi.cyan, white: oceanic.ansi.white,
+        brightBlack: oceanic.ansi.brightBlack, brightRed: oceanic.ansi.brightRed, brightGreen: oceanic.ansi.brightGreen,
+        brightYellow: oceanic.ansi.brightYellow, brightBlue: oceanic.ansi.brightBlue, brightMagenta: oceanic.ansi.brightMagenta,
+        brightCyan: oceanic.ansi.brightCyan, brightWhite: oceanic.ansi.brightWhite
+      }
     })
     const fit = new FitAddon()
     term.loadAddon(fit)

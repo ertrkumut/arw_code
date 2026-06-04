@@ -8,27 +8,21 @@ import type { Project } from '@shared/types'
 export function ProjectGrid({ project }: { project: Project }) {
   const { addTerminal } = useApp()
   const [focused, setFocused] = useState<string | null>(null)
-
   const terms = [...project.terminals].sort((a, b) => a.order - b.order)
   const { rows, cols } = gridDims(terms.length)
   const effectiveFocus = focused && terms.some(t => t.id === focused) ? focused : (terms[0]?.id ?? null)
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', color: oceanic.textSecondary }}>
-        <span>{project.name}</span>
-        <button onClick={() => addTerminal(project.id)} style={{
-          color: oceanic.accent, background: 'transparent', border: `1px solid ${oceanic.accent}`,
-          borderRadius: 6, padding: '2px 8px', cursor: 'pointer'
-        }}>＋ new terminal</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px' }}>
+        <span style={{ color: oceanic.textPrimary, fontSize: 14, fontWeight: 600 }}>{project.name}</span>
+        <button className="btn-pill" onClick={() => addTerminal(project.id)}>＋ New terminal</button>
       </div>
       {terms.length === 0 ? (
-        <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: oceanic.textMuted }}>
-          No terminals yet — click ＋ new terminal
-        </div>
+        <div className="empty">No terminals yet — click ＋ New terminal</div>
       ) : (
         <div style={{
-          flex: 1, display: 'grid', gap: 8, padding: 8, minHeight: 0,
+          flex: 1, display: 'grid', gap: 10, padding: '0 10px 10px', minHeight: 0,
           gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)`
         }}>
           {terms.map(t => (
