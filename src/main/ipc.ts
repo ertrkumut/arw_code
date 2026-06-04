@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { existsSync } from 'fs'
 import { IPC } from '@shared/constants'
 import { PtyManager } from './ptyManager'
 import { loadState, saveStateDebounced } from './store'
@@ -11,7 +12,8 @@ export function registerIpc(getWin: () => BrowserWindow | null, eventUrl: () => 
       send(IPC.ptyExit, { id, code })
       if (code !== 0) send(IPC.statusUpdate, { id, state: 'error' })
     },
-    (id, state) => send(IPC.statusUpdate, { id, state })
+    (id, state) => send(IPC.statusUpdate, { id, state }),
+    (id, message) => send(IPC.ptyError, { id, message })
   )
 
   ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows }) =>
@@ -26,6 +28,7 @@ export function registerIpc(getWin: () => BrowserWindow | null, eventUrl: () => 
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]
   })
+  ipcMain.handle(IPC.fsExists, (_e, p: string) => existsSync(p))
 
   return mgr
 }

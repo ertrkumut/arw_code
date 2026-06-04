@@ -8,10 +8,12 @@ export const IPC = {
   ptyKill: 'pty:kill',
   ptyData: 'pty:data',        // main -> renderer
   ptyExit: 'pty:exit',        // main -> renderer
+  ptyError: 'pty:error',      // main -> renderer
   statusUpdate: 'status:update', // main -> renderer
   storeLoad: 'store:load',
   storeSave: 'store:save',
-  pickFolder: 'dialog:pickFolder'
+  pickFolder: 'dialog:pickFolder',
+  fsExists: 'fs:exists'
 } as const
 
 export const DEFAULT_SIDEBAR_PCT = 25

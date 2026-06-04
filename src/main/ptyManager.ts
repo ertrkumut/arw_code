@@ -12,18 +12,22 @@ export class PtyManager {
   constructor(
     private onData: DataCb,
     private onExit: ExitCb,
-    private onInferred?: (id: string, state: TermState) => void
+    private onInferred?: (id: string, state: TermState) => void,
+    private onError?: (id: string, message: string) => void
   ) {}
 
   spawn(opts: SpawnOpts) {
     const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash')
-    const p = pty.spawn(shell, [], {
-      name: 'xterm-color',
-      cwd: opts.cwd,
-      cols: opts.cols,
-      rows: opts.rows,
-      env: { ...process.env, [ENV_TERMINAL_ID]: opts.id, [ENV_EVENT_URL]: opts.eventUrl }
-    })
+    let p: pty.IPty
+    try {
+      p = pty.spawn(shell, [], {
+        name: 'xterm-color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows,
+        env: { ...process.env, [ENV_TERMINAL_ID]: opts.id, [ENV_EVENT_URL]: opts.eventUrl }
+      })
+    } catch (err) {
+      this.onError?.(opts.id, String(err))
+      return
+    }
     let idleTimer: ReturnType<typeof setTimeout> | null = null
     p.onData((d) => {
       this.onData(opts.id, d)
@@ -31,11 +35,7 @@ export class PtyManager {
       if (idleTimer) clearTimeout(idleTimer)
       idleTimer = setTimeout(() => this.onInferred?.(opts.id, 'idle'), IDLE_FALLBACK_MS)
     })
-    p.onExit(({ exitCode }) => {
-      if (idleTimer) clearTimeout(idleTimer)
-      this.procs.delete(opts.id)
-      this.onExit(opts.id, exitCode)
-    })
+    p.onExit(({ exitCode }) => { if (idleTimer) clearTimeout(idleTimer); this.procs.delete(opts.id); this.onExit(opts.id, exitCode) })
     this.procs.set(opts.id, p)
     p.write('claude\r')
   }

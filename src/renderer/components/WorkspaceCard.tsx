@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { oceanic } from '../theme'
 import { aggregateState } from '@shared/status'
 import { useApp } from '../store/appStore'
@@ -9,6 +9,8 @@ export function WorkspaceCard({ project }: { project: Project }) {
   const selected = selectedProjectId === project.id
   const agg = aggregateState(project.terminals.map(t => statuses[t.id] ?? 'idle'))
   const showDot = project.terminals.length > 0 && agg !== 'idle'
+  const [missing, setMissing] = useState(false)
+  useEffect(() => { window.arw.pathExists(project.path).then(ok => setMissing(!ok)) }, [project.path])
 
   return (
     <div
@@ -23,7 +25,10 @@ export function WorkspaceCard({ project }: { project: Project }) {
       {showDot && (
         <span style={{ position: 'absolute', right: 10, top: 10, color: oceanic.status[agg] }}>●</span>
       )}
-      <div style={{ color: oceanic.textPrimary, fontSize: 13 }}>{project.name}</div>
+      <div style={{ color: oceanic.textPrimary, fontSize: 13 }}>
+        {project.name}
+        {missing && <span style={{ color: oceanic.status.error, fontSize: 10, marginLeft: 6 }}>missing</span>}
+      </div>
       <div style={{ color: oceanic.textMuted, fontSize: 11, marginTop: 2 }}>{project.path}</div>
     </div>
   )
