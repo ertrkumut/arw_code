@@ -7,7 +7,10 @@ export function registerIpc(getWin: () => BrowserWindow | null, eventUrl: () => 
   const send = (ch: string, ...args: unknown[]) => getWin()?.webContents.send(ch, ...args)
   const mgr = new PtyManager(
     (id, data) => send(IPC.ptyData, { id, data }),
-    (id, code) => send(IPC.ptyExit, { id, code })
+    (id, code) => {
+      send(IPC.ptyExit, { id, code })
+      if (code !== 0) send(IPC.statusUpdate, { id, state: 'error' })
+    }
   )
 
   ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows }) =>

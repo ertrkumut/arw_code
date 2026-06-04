@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { registerIpc } from './ipc'
+import { StatusBridge } from './statusBridge'
+import { IPC } from '@shared/constants'
 
 let win: BrowserWindow | null = null
 
@@ -13,8 +15,11 @@ function createWindow() {
   else win.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
-app.whenReady().then(() => {
-  registerIpc(() => win, () => 'http://127.0.0.1:0/event')
+app.whenReady().then(async () => {
+  const bridge = new StatusBridge((e) => win?.webContents.send(IPC.statusUpdate, e))
+  await bridge.start()
+  const mgr = registerIpc(() => win, () => bridge.url())
+  app.on('before-quit', () => { mgr.killAll(); bridge.stop() })
   createWindow()
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
