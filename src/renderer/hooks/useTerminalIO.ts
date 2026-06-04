@@ -38,9 +38,11 @@ export function useTerminalIO(id: string, cwd: string) {
     const ro = new ResizeObserver(() => refit())
     if (elRef.current) ro.observe(elRef.current)
     return () => {
+      // Tear down only the *view*. The shell is killed explicitly (tile ✕,
+      // project removal, torn-off window close, app quit) — never on unmount,
+      // so a terminal can move between windows without losing its session.
       offData()
       ro.disconnect()
-      window.arw.kill(id)
       term.dispose()
     }
   }, [id, cwd])

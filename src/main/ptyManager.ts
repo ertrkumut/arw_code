@@ -17,6 +17,10 @@ export class PtyManager {
   ) {}
 
   spawn(opts: SpawnOpts) {
+    // Idempotent: a terminal id already has a live shell when its view is
+    // re-mounted in another window (tear-off / reattach) or after a project
+    // switch. Don't respawn — just resize the existing pty to the new view.
+    if (this.procs.has(opts.id)) { this.resize(opts.id, opts.cols, opts.rows); return }
     const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash')
     let p: pty.IPty
     try {
@@ -37,7 +41,7 @@ export class PtyManager {
     })
     p.onExit(({ exitCode }) => { if (idleTimer) clearTimeout(idleTimer); this.procs.delete(opts.id); this.onExit(opts.id, exitCode) })
     this.procs.set(opts.id, p)
-    p.write('claude\r')
+    p.write('claude --dangerously-skip-permissions\r')
   }
 
   write(id: string, data: string) { this.procs.get(id)?.write(data) }

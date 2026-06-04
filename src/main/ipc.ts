@@ -1,11 +1,12 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { ipcMain, dialog } from 'electron'
 import { existsSync } from 'fs'
 import { IPC } from '@shared/constants'
 import { PtyManager } from './ptyManager'
 import { loadState, saveStateDebounced } from './store'
+import type { WindowManager } from './windows'
 
-export function registerIpc(getWin: () => BrowserWindow | null, eventUrl: () => string) {
-  const send = (ch: string, ...args: unknown[]) => getWin()?.webContents.send(ch, ...args)
+export function registerIpc(wm: WindowManager, eventUrl: () => string) {
+  const send = (ch: string, ...args: unknown[]) => wm.broadcast(ch, ...args)
   const mgr = new PtyManager(
     (id, data) => send(IPC.ptyData, { id, data }),
     (id, code) => {
@@ -15,12 +16,16 @@ export function registerIpc(getWin: () => BrowserWindow | null, eventUrl: () => 
     (id, state) => send(IPC.statusUpdate, { id, state }),
     (id, message) => send(IPC.ptyError, { id, message })
   )
+  wm.onKill = (id) => mgr.kill(id)   // a torn-off window closing kills its shell
 
   ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows }) =>
     mgr.spawn({ id, cwd, cols, rows, eventUrl: eventUrl() }))
   ipcMain.on(IPC.ptyInput, (_e, { id, data }) => mgr.write(id, data))
   ipcMain.on(IPC.ptyResize, (_e, { id, cols, rows }) => mgr.resize(id, cols, rows))
   ipcMain.on(IPC.ptyKill, (_e, { id }) => mgr.kill(id))
+
+  ipcMain.on(IPC.terminalTearOff, (_e, p) => wm.tearOff(p))
+  ipcMain.on(IPC.terminalReattach, (_e, p) => wm.reattach(p))
 
   ipcMain.handle(IPC.storeLoad, () => loadState())
   ipcMain.on(IPC.storeSave, (_e, state) => saveStateDebounced(state))

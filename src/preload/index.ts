@@ -28,6 +28,20 @@ const api = {
     ipcRenderer.on(IPC.ptyError, h)
     return () => ipcRenderer.removeListener(IPC.ptyError, h)
   },
+  tearOff: (p: { projectId: string; termId: string; name: string; color?: string; cwd: string; screenX: number; screenY: number }) =>
+    ipcRenderer.send(IPC.terminalTearOff, p),
+  reattach: (p: { termId: string; screenX: number; screenY: number }) =>
+    ipcRenderer.send(IPC.terminalReattach, p),
+  onReattached: (cb: (p: { id: string }) => void) => {
+    const h = (_e: IpcRendererEvent, p: { id: string }) => cb(p)
+    ipcRenderer.on(IPC.terminalReattached, h)
+    return () => ipcRenderer.removeListener(IPC.terminalReattached, h)
+  },
+  onClosed: (cb: (p: { id: string }) => void) => {
+    const h = (_e: IpcRendererEvent, p: { id: string }) => cb(p)
+    ipcRenderer.on(IPC.terminalClosed, h)
+    return () => ipcRenderer.removeListener(IPC.terminalClosed, h)
+  },
   pathExists: (p: string): Promise<boolean> => ipcRenderer.invoke(IPC.fsExists, p),
   loadStore: () => ipcRenderer.invoke(IPC.storeLoad),
   saveStore: (state: unknown) => ipcRenderer.send(IPC.storeSave, state),

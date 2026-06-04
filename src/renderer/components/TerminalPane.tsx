@@ -1,6 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useTerminalIO } from '../hooks/useTerminalIO'
 import { useApp } from '../store/appStore'
+import { ContextMenu } from './ContextMenu'
+import { TERMINAL_COLOR_PRESETS } from '../theme'
 import { Dot } from './Dot'
 import type { TermState } from '@shared/types'
 
@@ -9,26 +13,107 @@ function PaneBody({ termId, cwd }: { termId: string; cwd: string }) {
   return <div ref={ref} style={{ flex: 1, minHeight: 0, background: 'var(--bg-terminal)' }} />
 }
 
-export function TerminalPane({ projectId, termId, name, cwd, focused, onFocus }:
-  { projectId: string; termId: string; name: string; cwd: string; focused: boolean; onFocus: () => void }) {
-  const { statuses, removeTerminal } = useApp()
+export function TerminalPane({ projectId, termId, name, color, cwd, focused, onFocus, maximized, onToggleMax, dndEnabled, paneStyle }:
+  { projectId: string; termId: string; name: string; color?: string; cwd: string; focused: boolean; onFocus: () => void
+    maximized: boolean; onToggleMax: () => void; dndEnabled: boolean; paneStyle?: React.CSSProperties }) {
+  const { statuses, removeTerminal, renameTerminal, setTerminalColor } = useApp()
   const state: TermState = statuses[termId] ?? 'idle'
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(name)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [showColors, setShowColors] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging } =
+    useSortable({ id: termId, disabled: !dndEnabled || editing })
 
   useEffect(() => {
     const off = window.arw.onError(({ id, message }) => { if (id === termId) setError(message) })
-    return off
+    return () => { off() }
   }, [termId])
 
-  const retry = () => { setError(null); setAttempt(a => a + 1) }
+  // Focus + select the field whenever inline rename opens.
+  useEffect(() => { if (editing) { inputRef.current?.focus(); inputRef.current?.select() } }, [editing])
+
+  // Spawn is idempotent in the main process, so killing the old pty before a
+  // retry guarantees a genuinely fresh shell rather than re-attaching a dead one.
+  const retry = () => { window.arw.kill(termId); setError(null); setAttempt(a => a + 1) }
+
+  const startEdit = () => { setDraft(name); setEditing(true) }
+  const commitEdit = () => {
+    const v = draft.trim()
+    if (v && v !== name) renameTerminal(projectId, termId, v)
+    setEditing(false)
+  }
+  const closeMenu = () => { setMenu(null); setShowColors(false) }
+  const openMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setShowColors(false)
+    setMenu({ x: e.clientX, y: e.clientY })
+  }
+
+  const rootStyle = {
+    ...paneStyle,
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : (paneStyle?.opacity as number | undefined),
+    zIndex: isDragging ? 5 : undefined,
+    ...(color ? { ['--pane-accent']: color } : {})
+  } as React.CSSProperties
 
   return (
-    <div className={`pane${focused ? ' focused' : ''}`} onMouseDown={onFocus}>
-      <div className="pane-header">
-        <span className="pane-title"><Dot state={state} /><span className="tname">{name}</span></span>
-        <span className="pane-x" onClick={(e) => { e.stopPropagation(); removeTerminal(projectId, termId) }}>✕</span>
+    <div ref={setNodeRef} style={rootStyle}
+      className={`pane${focused ? ' focused' : ''}${isDragging ? ' dragging' : ''}`} onMouseDown={onFocus}>
+      <div className="pane-header" onContextMenu={openMenu}>
+        <span ref={setActivatorNodeRef} className={`pane-title${editing ? '' : ' pane-drag'}`}
+          {...(editing ? {} : attributes)} {...(editing ? {} : listeners)}>
+          <Dot state={state} />
+          {editing ? (
+            <input ref={inputRef} className="tname-input" value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitEdit()
+                else if (e.key === 'Escape') setEditing(false)
+              }}
+              onBlur={commitEdit}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()} />
+          ) : (
+            <span className="tname" title="Double-click to rename"
+              onDoubleClick={(e) => { e.stopPropagation(); startEdit() }}>{name}</span>
+          )}
+        </span>
+        <span className="pane-actions">
+          <span className="pane-btn" title={maximized ? 'Restore' : 'Maximize'}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onToggleMax() }}>{maximized ? '❐' : '▢'}</span>
+          <span className="pane-btn pane-x-btn" title="Close terminal"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); removeTerminal(projectId, termId) }}>✕</span>
+        </span>
       </div>
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} onClose={closeMenu}>
+          {!showColors ? (
+            <>
+              <button className="ctx-item" onClick={() => { startEdit(); closeMenu() }}>Rename</button>
+              <button className="ctx-item" onClick={() => setShowColors(true)}>Change color ▸</button>
+            </>
+          ) : (
+            <div className="ctx-colors">
+              {TERMINAL_COLOR_PRESETS.map(p => (
+                <button key={p.value} className={`ctx-swatch${color === p.value ? ' active' : ''}`}
+                  title={p.name} style={{ background: p.value }}
+                  onClick={() => { setTerminalColor(projectId, termId, p.value); closeMenu() }} />
+              ))}
+              <button className="ctx-swatch ctx-swatch-default" title="Default (no color)"
+                onClick={() => { setTerminalColor(projectId, termId, null); closeMenu() }}>✕</button>
+            </div>
+          )}
+        </ContextMenu>
+      )}
       {error ? (
         <div style={{ flex: 1, minHeight: 0, display: 'grid', placeItems: 'center', padding: 16, textAlign: 'center' }}>
           <div>

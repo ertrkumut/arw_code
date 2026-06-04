@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { aggregateState } from '@shared/status'
 import { useApp } from '../store/appStore'
 import { Dot } from './Dot'
@@ -12,10 +14,21 @@ export function WorkspaceCard({ project }: { project: Project }) {
   const [missing, setMissing] = useState(false)
   useEffect(() => { window.arw.pathExists(project.path).then(ok => setMissing(!ok)) }, [project.path])
 
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.45 : 1
+  }
+
   return (
-    <div className={`pcard${selected ? ' active' : ''}`}
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}
+      className={`pcard${selected ? ' active' : ''}${isDragging ? ' dragging' : ''}`}
       onClick={() => selectProject(project.id)}
-      onContextMenu={(e) => { e.preventDefault(); if (confirm(`Remove ${project.name}?`)) removeProject(project.id) }}>
+      onContextMenu={(e) => {
+        e.preventDefault(); e.stopPropagation()
+        if (confirm(`Remove ${project.name}?`)) removeProject(project.id)
+      }}>
       {showDot && <span style={{ position: 'absolute', right: 11, top: 13 }}><Dot state={agg} /></span>}
       <div className="pname">
         {project.name}

@@ -29,3 +29,20 @@ export const oceanic = {
     brightBlue: '#9CC0FF', brightMagenta: '#DDB0F6', brightCyan: '#7FE0D8', brightWhite: '#E7EAF3'
   }
 } as const
+
+/**
+ * Curated header-color presets, tuned to the Oceanic palette. `value` is the base
+ * hex stored on a terminal; the UI derives the header tint + focus accent from it
+ * via color-mix. The first entry (Teal) matches the default --accent, so picking it
+ * is visually equivalent to "Default" but makes the choice explicit.
+ */
+export const TERMINAL_COLOR_PRESETS = [
+  { name: 'Teal', value: '#5BC9C0' },
+  { name: 'Blue', value: '#82AAFF' },
+  { name: 'Purple', value: '#C792EA' },
+  { name: 'Green', value: '#7FD88F' },
+  { name: 'Amber', value: '#F2C57C' },
+  { name: 'Coral', value: '#EB6F77' },
+  { name: 'Pink', value: '#F29BC4' },
+  { name: 'Slate', value: '#8A93AB' }
+] as const

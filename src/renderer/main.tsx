@@ -7,5 +7,14 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import './global.css'
 import App from './App'
+import { DetachedTerminalApp } from './DetachedTerminalApp'
 
-createRoot(document.getElementById('root')!).render(<App />)
+const params = new URLSearchParams(window.location.search)
+const term = params.get('term')
+const root = createRoot(document.getElementById('root')!)
+root.render(
+  term
+    ? <DetachedTerminalApp termId={term} name={params.get('name') ?? 'terminal'}
+        color={params.get('color') ?? undefined} cwd={params.get('cwd') ?? ''} />
+    : <App />
+)
