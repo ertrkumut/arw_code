@@ -1,5 +1,6 @@
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
-import { ENV_TERMINAL_ID, ENV_EVENT_URL } from '@shared/constants'
+import { ENV_TERMINAL_ID, ENV_EVENT_URL, IDLE_FALLBACK_MS } from '@shared/constants'
+import { TermState } from '@shared/types'
 
 export interface SpawnOpts { id: string; cwd: string; eventUrl: string; cols: number; rows: number }
 
@@ -8,7 +9,11 @@ type ExitCb = (id: string, code: number) => void
 
 export class PtyManager {
   private procs = new Map<string, pty.IPty>()
-  constructor(private onData: DataCb, private onExit: ExitCb) {}
+  constructor(
+    private onData: DataCb,
+    private onExit: ExitCb,
+    private onInferred?: (id: string, state: TermState) => void
+  ) {}
 
   spawn(opts: SpawnOpts) {
     const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash')
@@ -19,8 +24,18 @@ export class PtyManager {
       rows: opts.rows,
       env: { ...process.env, [ENV_TERMINAL_ID]: opts.id, [ENV_EVENT_URL]: opts.eventUrl }
     })
-    p.onData((d) => this.onData(opts.id, d))
-    p.onExit(({ exitCode }) => { this.procs.delete(opts.id); this.onExit(opts.id, exitCode) })
+    let idleTimer: ReturnType<typeof setTimeout> | null = null
+    p.onData((d) => {
+      this.onData(opts.id, d)
+      this.onInferred?.(opts.id, 'working')
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => this.onInferred?.(opts.id, 'idle'), IDLE_FALLBACK_MS)
+    })
+    p.onExit(({ exitCode }) => {
+      if (idleTimer) clearTimeout(idleTimer)
+      this.procs.delete(opts.id)
+      this.onExit(opts.id, exitCode)
+    })
     this.procs.set(opts.id, p)
     p.write('claude\r')
   }

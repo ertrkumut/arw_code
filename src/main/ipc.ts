@@ -10,7 +10,8 @@ export function registerIpc(getWin: () => BrowserWindow | null, eventUrl: () => 
     (id, code) => {
       send(IPC.ptyExit, { id, code })
       if (code !== 0) send(IPC.statusUpdate, { id, state: 'error' })
-    }
+    },
+    (id, state) => send(IPC.statusUpdate, { id, state })
   )
 
   ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows }) =>
