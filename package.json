@@ -9,16 +9,23 @@
     "dist": "npm run build && electron-builder --win",
     "start": "electron-vite preview",
     "test": "vitest run",
-    "postinstall": "electron-rebuild -f -w @homebridge/node-pty-prebuilt-multiarch"
+    "postinstall": "node scripts/rebuild-native.cjs"
   },
   "build": {
     "appId": "com.arw.agentmanager",
     "productName": "Agent Manager",
-    "files": ["out/**/*"],
-    "extraResources": [
-      { "from": "out/main/hook-script", "to": "hook-script" }
+    "files": [
+      "out/**/*"
     ],
-    "win": { "target": "nsis" }
+    "extraResources": [
+      {
+        "from": "out/main/hook-script",
+        "to": "hook-script"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
