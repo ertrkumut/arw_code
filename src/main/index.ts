@@ -3,6 +3,7 @@ import { join } from 'path'
 import { registerIpc } from './ipc'
 import { StatusBridge } from './statusBridge'
 import { IPC } from '@shared/constants'
+import { installHooks } from './hookInstaller'
 
 let win: BrowserWindow | null = null
 
@@ -16,6 +17,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  try { installHooks() } catch (e) { console.error('[arw] installHooks failed:', e) }
   const bridge = new StatusBridge((e) => win?.webContents.send(IPC.statusUpdate, e))
   await bridge.start()
   const mgr = registerIpc(() => win, () => bridge.url())

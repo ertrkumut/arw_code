@@ -5,7 +5,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/copy-hook.cjs",
     "start": "electron-vite preview",
     "test": "vitest run",
     "postinstall": "electron-rebuild -f -w @homebridge/node-pty-prebuilt-multiarch"
