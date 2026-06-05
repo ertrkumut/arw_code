@@ -1,6 +1,5 @@
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
-import { ENV_TERMINAL_ID, ENV_EVENT_URL, IDLE_FALLBACK_MS } from '@shared/constants'
-import { TermState } from '@shared/types'
+import { ENV_TERMINAL_ID, ENV_EVENT_URL } from '@shared/constants'
 
 export interface SpawnOpts { id: string; cwd: string; eventUrl: string; cols: number; rows: number }
 
@@ -12,7 +11,6 @@ export class PtyManager {
   constructor(
     private onData: DataCb,
     private onExit: ExitCb,
-    private onInferred?: (id: string, state: TermState) => void,
     private onError?: (id: string, message: string) => void
   ) {}
 
@@ -32,14 +30,13 @@ export class PtyManager {
       this.onError?.(opts.id, String(err))
       return
     }
-    let idleTimer: ReturnType<typeof setTimeout> | null = null
-    p.onData((d) => {
-      this.onData(opts.id, d)
-      this.onInferred?.(opts.id, 'working')
-      if (idleTimer) clearTimeout(idleTimer)
-      idleTimer = setTimeout(() => this.onInferred?.(opts.id, 'idle'), IDLE_FALLBACK_MS)
-    })
-    p.onExit(({ exitCode }) => { if (idleTimer) clearTimeout(idleTimer); this.procs.delete(opts.id); this.onExit(opts.id, exitCode) })
+    // Status (working / needs-you / idle) is driven exclusively by Claude's
+    // lifecycle hooks via the StatusBridge — never inferred from raw pty output.
+    // Terminal bytes are a poor proxy for "Claude is working" (shell prompts and
+    // the claude startup banner would flash the dot green), and an output-silence
+    // timer would erase a real `needs-you` while Claude waits for the user.
+    p.onData((d) => this.onData(opts.id, d))
+    p.onExit(({ exitCode }) => { this.procs.delete(opts.id); this.onExit(opts.id, exitCode) })
     this.procs.set(opts.id, p)
     p.write('claude --dangerously-skip-permissions\r')
   }

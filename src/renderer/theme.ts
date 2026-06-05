@@ -31,18 +31,28 @@ export const oceanic = {
 } as const
 
 /**
- * Curated header-color presets, tuned to the Oceanic palette. `value` is the base
- * hex stored on a terminal; the UI derives the header tint + focus accent from it
+ * Curated color presets, tuned to the Oceanic palette. `value` is the base hex
+ * stored on a terminal / project / group; the UI derives tints + accents from it
  * via color-mix. The first entry (Teal) matches the default --accent, so picking it
  * is visually equivalent to "Default" but makes the choice explicit.
  */
-export const TERMINAL_COLOR_PRESETS = [
+export const COLOR_PRESETS = [
   { name: 'Teal', value: '#5BC9C0' },
+  { name: 'Mint', value: '#6FE3B8' },
+  { name: 'Cyan', value: '#67E8F0' },
+  { name: 'Sky', value: '#7DD3FC' },
   { name: 'Blue', value: '#82AAFF' },
+  { name: 'Indigo', value: '#8E97FF' },
+  { name: 'Lavender', value: '#B7A8F5' },
   { name: 'Purple', value: '#C792EA' },
-  { name: 'Green', value: '#7FD88F' },
-  { name: 'Amber', value: '#F2C57C' },
-  { name: 'Coral', value: '#EB6F77' },
+  { name: 'Magenta', value: '#E879C9' },
   { name: 'Pink', value: '#F29BC4' },
+  { name: 'Rose', value: '#F2789B' },
+  { name: 'Coral', value: '#EB6F77' },
+  { name: 'Orange', value: '#F2A86C' },
+  { name: 'Amber', value: '#F2C57C' },
+  { name: 'Gold', value: '#E6C76A' },
+  { name: 'Lime', value: '#C6E88A' },
+  { name: 'Green', value: '#7FD88F' },
   { name: 'Slate', value: '#8A93AB' }
 ] as const

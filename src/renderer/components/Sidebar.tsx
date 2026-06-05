@@ -7,16 +7,23 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useApp } from '../store/appStore'
 import { WorkspaceCard } from './WorkspaceCard'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { ColorSwatchPicker } from './ColorSwatchPicker'
 import type { Group, Project } from '@shared/types'
 
-type Menu = { x: number; y: number; items: MenuItem[] }
+type Menu = {
+  x: number; y: number; items: MenuItem[]
+  view?: 'menu' | 'color'
+  current?: string
+  onPick?: (color: string | null) => void
+}
 
 const UNGROUPED = 'ungrouped'
 const keyToGroupId = (key: string): string | null => (key === UNGROUPED ? null : key.slice(6))
 
 export function Sidebar() {
   const {
-    projects, groups, addProject, addGroup, removeGroup, renameGroup, toggleGroup, moveProject, toggleSidebar
+    projects, groups, addProject, addGroup, removeGroup, renameGroup, setGroupColor,
+    toggleGroup, moveProject, toggleSidebar
   } = useApp()
 
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -74,10 +81,16 @@ export function Sidebar() {
 
   const openGroupMenu = (e: React.MouseEvent, g: Group) => {
     e.preventDefault(); e.stopPropagation()
-    setMenu({ x: e.clientX, y: e.clientY, items: [
-      { label: 'Rename', onClick: () => setEditingGroupId(g.id) },
-      { label: 'Delete group', danger: true, onClick: () => removeGroup(g.id) }
-    ] })
+    setMenu({
+      x: e.clientX, y: e.clientY,
+      current: g.color,
+      onPick: (c) => { setGroupColor(g.id, c); setMenu(null) },
+      items: [
+        { label: 'Rename', onClick: () => setEditingGroupId(g.id) },
+        { label: 'Change color ▸', keepOpen: true, onClick: () => setMenu(m => m ? { ...m, view: 'color' } : m) },
+        { label: 'Delete group', danger: true, onClick: () => removeGroup(g.id) }
+      ]
+    })
   }
 
   const activeProject = activeId ? projects.find(p => p.id === activeId) : null
@@ -119,7 +132,15 @@ export function Sidebar() {
         <button className="rail-toggle wide" title="Collapse sidebar" onClick={toggleSidebar}>« Collapse</button>
       </div>
 
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y}
+          items={menu.view === 'color' ? undefined : menu.items}
+          onClose={() => setMenu(null)}>
+          {menu.view === 'color' && menu.onPick && (
+            <ColorSwatchPicker current={menu.current} onPick={menu.onPick} />
+          )}
+        </ContextMenu>
+      )}
     </div>
   )
 }
@@ -145,8 +166,9 @@ function GroupSection({ group, projects, editing, onRenameCommit, onToggle, onMe
   const { setNodeRef, isOver } = useDroppable({ id: key })
   const ids = projects.map(p => p.id)
   return (
-    <div ref={setNodeRef} className={`group${isOver ? ' drop-over' : ''}`}>
-      <div className="group-head" onClick={onToggle} onContextMenu={onMenu}>
+    <div ref={setNodeRef} className={`group${isOver ? ' drop-over' : ''}`}
+      style={group.color ? ({ ['--pane-accent']: group.color } as React.CSSProperties) : undefined}>
+      <div className={`group-head${group.color ? ' colored' : ''}`} onClick={onToggle} onContextMenu={onMenu}>
         <span className={`chev${group.collapsed ? '' : ' open'}`}>▸</span>
         {editing
           ? <input className="group-rename" autoFocus defaultValue={group.name}

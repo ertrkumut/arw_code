@@ -8,7 +8,6 @@ export function SidebarRail() {
   const { projects, selectedProjectId, selectProject, statuses, toggleSidebar } = useApp()
   return (
     <div className="rail">
-      <button className="rail-toggle" title="Expand sidebar" onClick={toggleSidebar}>»</button>
       <div className="rail-list scroll-slim">
         {projects.map(p => {
           const agg = aggregateState(p.terminals.map(t => statuses[t.id] ?? 'idle'))
@@ -22,6 +21,9 @@ export function SidebarRail() {
             </button>
           )
         })}
+      </div>
+      <div className="rail-foot">
+        <button className="rail-toggle wide" title="Expand sidebar" onClick={toggleSidebar}>»</button>
       </div>
     </div>
   )

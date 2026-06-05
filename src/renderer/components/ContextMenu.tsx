@@ -4,6 +4,8 @@ export interface MenuItem {
   label: string
   onClick: () => void
   danger?: boolean
+  /** Keep the menu open after click — e.g. to reveal a submenu/color step. */
+  keepOpen?: boolean
 }
 
 export function ContextMenu({ x, y, items, children, onClose }:
@@ -26,7 +28,7 @@ export function ContextMenu({ x, y, items, children, onClose }:
     <div ref={ref} className="ctx-menu" style={{ left, top }} onContextMenu={(e) => e.preventDefault()}>
       {items?.map((it, i) => (
         <button key={i} className={`ctx-item${it.danger ? ' danger' : ''}`}
-          onClick={() => { it.onClick(); onClose() }}>
+          onClick={() => { it.onClick(); if (!it.keepOpen) onClose() }}>
           {it.label}
         </button>
       ))}

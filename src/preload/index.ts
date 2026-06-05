@@ -46,6 +46,9 @@ const api = {
   loadStore: () => ipcRenderer.invoke(IPC.storeLoad),
   saveStore: (state: unknown) => ipcRenderer.send(IPC.storeSave, state),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.pickFolder),
+  clipboardRead: (): Promise<string> => ipcRenderer.invoke(IPC.clipboardRead),
+  clipboardWrite: (text: string) => ipcRenderer.send(IPC.clipboardWrite, text),
+  openInExplorer: (path: string) => ipcRenderer.send(IPC.openPath, path),
 }
 
 contextBridge.exposeInMainWorld('arw', api)

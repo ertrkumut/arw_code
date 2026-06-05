@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, clipboard, shell } from 'electron'
 import { existsSync } from 'fs'
 import { IPC } from '@shared/constants'
 import { PtyManager } from './ptyManager'
@@ -13,7 +13,6 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
       send(IPC.ptyExit, { id, code })
       if (code !== 0) send(IPC.statusUpdate, { id, state: 'error' })
     },
-    (id, state) => send(IPC.statusUpdate, { id, state }),
     (id, message) => send(IPC.ptyError, { id, message })
   )
   wm.onKill = (id) => mgr.kill(id)   // a torn-off window closing kills its shell
@@ -34,6 +33,14 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle(IPC.fsExists, (_e, p: string) => existsSync(p))
+
+  // Clipboard via the main process: navigator.clipboard.readText() is blocked in
+  // the file:// renderer (non-secure context), so route copy/paste through Electron.
+  ipcMain.handle(IPC.clipboardRead, () => clipboard.readText())
+  ipcMain.on(IPC.clipboardWrite, (_e, text: string) => clipboard.writeText(text))
+
+  // Open a project folder in the OS file manager (Explorer/Finder/etc).
+  ipcMain.on(IPC.openPath, (_e, p: string) => { void shell.openPath(p) })
 
   return mgr
 }

@@ -1,6 +1,6 @@
 {
   "name": "agent-manager",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Manage Claude Code CLI terminals across projects",
   "main": "./out/main/index.js",
   "scripts": {
@@ -24,8 +24,18 @@
       }
     ],
     "win": {
-      "target": "nsis"
-    }
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ARWCode"
+    },
+    "npmRebuild": false
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
@@ -52,5 +62,6 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "zustand": "^4.5.0"
-  }
+  },
+  "author": "ARW"
 }

@@ -7,6 +7,21 @@ import { WindowManager } from './windows'
 
 const wm = new WindowManager()
 
+// Hold a single-instance lock. Two processes contending for Electron's GPU/disk
+// cache directory is the usual source of the "Unable to move the cache" /
+// "Gpu Cache Creation failed" console errors on Windows. A second launch focuses
+// the existing window and quits instead of fighting over the cache.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+
+app.on('second-instance', () => {
+  const main = wm.getMain()
+  if (!main) return
+  if (main.isMinimized()) main.restore()
+  main.focus()
+})
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   try { installHooks() } catch (e) { console.error('[arw] installHooks failed:', e) }
@@ -17,3 +32,5 @@ app.whenReady().then(async () => {
   wm.createMain()
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+
+}

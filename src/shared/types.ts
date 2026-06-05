@@ -1,5 +1,9 @@
 export type TermState = 'working' | 'needs-you' | 'idle' | 'error'
 
+/** How a project's terminals tile. vertical = stacked (one column),
+ *  horizontal = side-by-side (one row), grid = auto square-ish tiling. */
+export type LayoutMode = 'grid' | 'vertical' | 'horizontal'
+
 export interface Terminal {
   id: string
   name: string
@@ -14,6 +18,8 @@ export interface Group {
   id: string
   name: string
   collapsed: boolean
+  /** Preset hex tinting the group header stripe/background. Undefined = neutral. Persisted. */
+  color?: string
 }
 
 export interface Project {
@@ -23,6 +29,10 @@ export interface Project {
   collapsed: boolean
   terminals: Terminal[]
   groupId: string | null   // null = Ungrouped section
+  /** Preset hex tinting the project card stripe/background. Undefined = neutral. Persisted. */
+  color?: string
+  /** How this project's terminals tile. Undefined = 'grid' (backward compatible). Persisted. */
+  layout?: LayoutMode
 }
 
 export interface PersistedState {
@@ -31,6 +41,7 @@ export interface PersistedState {
   projects: Project[]
   groups: Group[]
   sidebarCollapsed: boolean
+  sidebarWidthPct?: number
 }
 
 /** Event posted by a Claude hook to the Status Bridge. */

@@ -4,19 +4,19 @@ import { CSS } from '@dnd-kit/utilities'
 import { useTerminalIO } from '../hooks/useTerminalIO'
 import { useApp } from '../store/appStore'
 import { ContextMenu } from './ContextMenu'
-import { TERMINAL_COLOR_PRESETS } from '../theme'
+import { ColorSwatchPicker } from './ColorSwatchPicker'
 import { Dot } from './Dot'
 import type { TermState } from '@shared/types'
 
 function PaneBody({ termId, cwd }: { termId: string; cwd: string }) {
   const ref = useTerminalIO(termId, cwd)
-  return <div ref={ref} style={{ flex: 1, minHeight: 0, background: 'var(--bg-terminal)' }} />
+  return <div ref={ref} style={{ flex: 1, minHeight: 0, padding: '4px 8px 6px', background: 'var(--bg-terminal)' }} />
 }
 
 export function TerminalPane({ projectId, termId, name, color, cwd, focused, onFocus, maximized, onToggleMax, dndEnabled, paneStyle }:
   { projectId: string; termId: string; name: string; color?: string; cwd: string; focused: boolean; onFocus: () => void
     maximized: boolean; onToggleMax: () => void; dndEnabled: boolean; paneStyle?: React.CSSProperties }) {
-  const { statuses, removeTerminal, renameTerminal, setTerminalColor } = useApp()
+  const { statuses, requestRemoveTerminal, renameTerminal, setTerminalColor } = useApp()
   const state: TermState = statuses[termId] ?? 'idle'
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -91,7 +91,7 @@ export function TerminalPane({ projectId, termId, name, color, cwd, focused, onF
             onClick={(e) => { e.stopPropagation(); onToggleMax() }}>{maximized ? '❐' : '▢'}</span>
           <span className="pane-btn pane-x-btn" title="Close terminal"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); removeTerminal(projectId, termId) }}>✕</span>
+            onClick={(e) => { e.stopPropagation(); requestRemoveTerminal(projectId, termId) }}>✕</span>
         </span>
       </div>
       {menu && (
@@ -102,15 +102,8 @@ export function TerminalPane({ projectId, termId, name, color, cwd, focused, onF
               <button className="ctx-item" onClick={() => setShowColors(true)}>Change color ▸</button>
             </>
           ) : (
-            <div className="ctx-colors">
-              {TERMINAL_COLOR_PRESETS.map(p => (
-                <button key={p.value} className={`ctx-swatch${color === p.value ? ' active' : ''}`}
-                  title={p.name} style={{ background: p.value }}
-                  onClick={() => { setTerminalColor(projectId, termId, p.value); closeMenu() }} />
-              ))}
-              <button className="ctx-swatch ctx-swatch-default" title="Default (no color)"
-                onClick={() => { setTerminalColor(projectId, termId, null); closeMenu() }}>✕</button>
-            </div>
+            <ColorSwatchPicker current={color}
+              onPick={(c) => { setTerminalColor(projectId, termId, c); closeMenu() }} />
           )}
         </ContextMenu>
       )}

@@ -1,25 +1,47 @@
 import { create } from 'zustand'
-import type { PersistedState, Project, Group, TermState } from '@shared/types'
+import type { PersistedState, Project, Group, TermState, LayoutMode } from '@shared/types'
+import { DEFAULT_SIDEBAR_PCT } from '@shared/constants'
+
+const SIDEBAR_MIN_PCT = 15
+const SIDEBAR_MAX_PCT = 45
+const clampSidebar = (pct: number) =>
+  Math.min(SIDEBAR_MAX_PCT, Math.max(SIDEBAR_MIN_PCT, Math.round(pct * 10) / 10))
 
 interface AppState {
   projects: Project[]
   groups: Group[]
   selectedProjectId: string | null
   sidebarCollapsed: boolean
+  sidebarWidthPct: number
   statuses: Record<string, TermState>   // terminalId -> state
   maximizedTermId: string | null        // transient: pane filling the grid area
+  focusedTermId: string | null          // transient: the "selected" pane (drives Ctrl+W target)
+  autoFocusTermId: string | null        // transient: a just-created pane to focus once it mounts
+  // transient: a pending close awaiting confirmation (only set when the terminal is `working`)
+  closeRequest: { projectId: string; termId: string; name: string } | null
   loaded: boolean
   load: () => Promise<void>
   persist: () => void
   selectProject: (id: string) => void
   addProject: (name: string, path: string) => void
   removeProject: (id: string) => void
+  setProjectColor: (id: string, color: string | null) => void
+  setProjectLayout: (id: string, layout: LayoutMode) => void
   addTerminal: (projectId: string) => void
   removeTerminal: (projectId: string, termId: string) => void
+  // Close a terminal, but if Claude is `working` in it, stage a confirmation instead.
+  requestRemoveTerminal: (projectId: string, termId: string) => void
+  confirmClose: () => void
+  cancelClose: () => void
   renameTerminal: (projectId: string, termId: string, name: string) => void
   setTerminalColor: (projectId: string, termId: string, color: string | null) => void
   moveTerminal: (projectId: string, termId: string, toIndex: number) => void
   setMaximized: (termId: string | null) => void
+  setFocusedTerm: (termId: string | null) => void
+  // Select a terminal AND request its xterm input focus (Ctrl+1..9). If a pane is
+  // currently maximized, the maximized pane switches to this one so it stays visible.
+  focusTerminal: (termId: string) => void
+  clearAutoFocus: () => void
   detachTerminal: (termId: string) => void
   reattachTerminal: (termId: string) => void
   dropTerminal: (termId: string) => void
@@ -28,17 +50,20 @@ interface AppState {
   addGroup: (name: string) => string
   removeGroup: (id: string) => void
   renameGroup: (id: string, name: string) => void
+  setGroupColor: (id: string, color: string | null) => void
   toggleGroup: (id: string) => void
   moveProject: (projectId: string, groupId: string | null, toIndex: number) => void
   // sidebar
   toggleSidebar: () => void
+  setSidebarWidth: (pct: number, commit?: boolean) => void
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
 export const useApp = create<AppState>((set, get) => ({
-  projects: [], groups: [], selectedProjectId: null, sidebarCollapsed: false, statuses: {},
-  maximizedTermId: null, loaded: false,
+  projects: [], groups: [], selectedProjectId: null, sidebarCollapsed: false,
+  sidebarWidthPct: DEFAULT_SIDEBAR_PCT, statuses: {},
+  maximizedTermId: null, focusedTermId: null, autoFocusTermId: null, closeRequest: null, loaded: false,
 
   load: async () => {
     const s: PersistedState = await window.arw.loadStore()
@@ -47,11 +72,12 @@ export const useApp = create<AppState>((set, get) => ({
       groups: s.groups ?? [],
       selectedProjectId: s.lastSelectedProjectId,
       sidebarCollapsed: !!s.sidebarCollapsed,
+      sidebarWidthPct: clampSidebar(s.sidebarWidthPct ?? DEFAULT_SIDEBAR_PCT),
       loaded: true
     })
   },
   persist: () => {
-    const { projects, groups, selectedProjectId, sidebarCollapsed } = get()
+    const { projects, groups, selectedProjectId, sidebarCollapsed, sidebarWidthPct } = get()
     // `detached` is session-only — strip it so a torn-off terminal returns to
     // the grid on next launch instead of vanishing.
     const cleanProjects = projects.map(p => ({
@@ -63,7 +89,8 @@ export const useApp = create<AppState>((set, get) => ({
       lastSelectedProjectId: selectedProjectId,
       projects: cleanProjects,
       groups,
-      sidebarCollapsed
+      sidebarCollapsed,
+      sidebarWidthPct
     } satisfies PersistedState)
   },
   selectProject: (id) => { set({ selectedProjectId: id }); get().persist() },
@@ -80,10 +107,25 @@ export const useApp = create<AppState>((set, get) => ({
     }))
     get().persist()
   },
+  setProjectColor: (id, color) => {
+    set((st) => ({ projects: st.projects.map(p => p.id === id ? { ...p, color: color ?? undefined } : p) }))
+    get().persist()
+  },
+  setProjectLayout: (id, layout) => {
+    set((st) => ({ projects: st.projects.map(p => p.id === id ? { ...p, layout } : p) }))
+    get().persist()
+  },
   addTerminal: (projectId) => {
-    set((st) => ({ projects: st.projects.map(p => p.id === projectId
-      ? { ...p, terminals: [...p.terminals, { id: uid(), name: `terminal ${p.terminals.length + 1}`, order: p.terminals.length }] }
-      : p) }))
+    const id = uid()
+    // Flag the new terminal for auto-focus + mark it the selected pane so the user
+    // can type immediately. useTerminalIO consumes autoFocusTermId once it mounts.
+    set((st) => ({
+      projects: st.projects.map(p => p.id === projectId
+        ? { ...p, terminals: [...p.terminals, { id, name: `terminal ${p.terminals.length + 1}`, order: p.terminals.length }] }
+        : p),
+      focusedTermId: id,
+      autoFocusTermId: id
+    }))
     get().persist()
   },
   removeTerminal: (projectId, termId) => {
@@ -91,10 +133,29 @@ export const useApp = create<AppState>((set, get) => ({
     set((st) => ({
       projects: st.projects.map(p => p.id === projectId
         ? { ...p, terminals: p.terminals.filter(t => t.id !== termId) } : p),
-      maximizedTermId: st.maximizedTermId === termId ? null : st.maximizedTermId
+      maximizedTermId: st.maximizedTermId === termId ? null : st.maximizedTermId,
+      focusedTermId: st.focusedTermId === termId ? null : st.focusedTermId,
+      closeRequest: st.closeRequest?.termId === termId ? null : st.closeRequest
     }))
     get().persist()
   },
+  requestRemoveTerminal: (projectId, termId) => {
+    // Guard destructive close: if Claude is mid-task, stage a confirmation modal
+    // instead of killing the shell. Otherwise close immediately.
+    const { statuses, projects } = get()
+    if (statuses[termId] === 'working') {
+      const name = projects.find(p => p.id === projectId)
+        ?.terminals.find(t => t.id === termId)?.name ?? 'this terminal'
+      set({ closeRequest: { projectId, termId, name } })
+    } else {
+      get().removeTerminal(projectId, termId)
+    }
+  },
+  confirmClose: () => {
+    const req = get().closeRequest
+    if (req) get().removeTerminal(req.projectId, req.termId)   // also clears closeRequest
+  },
+  cancelClose: () => set({ closeRequest: null }),
   renameTerminal: (projectId, termId, name) => {
     set((st) => ({ projects: st.projects.map(p => p.id === projectId
       ? { ...p, terminals: p.terminals.map(t => t.id === termId ? { ...t, name } : t) } : p) }))
@@ -120,6 +181,14 @@ export const useApp = create<AppState>((set, get) => ({
     get().persist()
   },
   setMaximized: (termId) => set({ maximizedTermId: termId }),
+  setFocusedTerm: (termId) => set({ focusedTermId: termId }),
+  focusTerminal: (termId) => set((st) => ({
+    focusedTermId: termId,
+    autoFocusTermId: termId,
+    // Keep the visible pane in sync when maximized; leave grid view untouched otherwise.
+    maximizedTermId: st.maximizedTermId === null ? null : termId
+  })),
+  clearAutoFocus: () => set({ autoFocusTermId: null }),
   detachTerminal: (termId) => set((st) => ({
     maximizedTermId: st.maximizedTermId === termId ? null : st.maximizedTermId,
     projects: st.projects.map(p => ({
@@ -160,6 +229,10 @@ export const useApp = create<AppState>((set, get) => ({
     set((st) => ({ groups: st.groups.map(g => g.id === id ? { ...g, name } : g) }))
     get().persist()
   },
+  setGroupColor: (id, color) => {
+    set((st) => ({ groups: st.groups.map(g => g.id === id ? { ...g, color: color ?? undefined } : g) }))
+    get().persist()
+  },
   toggleGroup: (id) => {
     set((st) => ({ groups: st.groups.map(g => g.id === id ? { ...g, collapsed: !g.collapsed } : g) }))
     get().persist()
@@ -184,5 +257,11 @@ export const useApp = create<AppState>((set, get) => ({
   toggleSidebar: () => {
     set((st) => ({ sidebarCollapsed: !st.sidebarCollapsed }))
     get().persist()
+  },
+
+  // Live drag updates pass commit=false (no disk write); release commits + persists.
+  setSidebarWidth: (pct, commit = true) => {
+    set({ sidebarWidthPct: clampSidebar(pct) })
+    if (commit) get().persist()
   }
 }))

@@ -1,25 +1,27 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import {
   DndContext, PointerSensor, useSensor, useSensors, closestCenter,
   type DragStartEvent, type DragEndEvent
 } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import { useApp } from '../store/appStore'
-import { gridDims } from '@shared/tiling'
+import { tileLayout } from '@shared/tiling'
 import { oceanic } from '../theme'
 import { TerminalPane } from './TerminalPane'
+import { LayoutToggle } from './LayoutToggle'
 import type { Project } from '@shared/types'
 
 export function ProjectGrid({ project }: { project: Project }) {
-  const { addTerminal, moveTerminal, detachTerminal, maximizedTermId, setMaximized } = useApp()
-  const [focused, setFocused] = useState<string | null>(null)
+  const { addTerminal, moveTerminal, detachTerminal, maximizedTermId, setMaximized, setProjectLayout,
+    focusedTermId, setFocusedTerm } = useApp()
   const ptr = useRef<{ x: number; y: number } | null>(null)
 
+  const layout = project.layout ?? 'grid'
   const terms = [...project.terminals].sort((a, b) => a.order - b.order)
   const visible = terms.filter(t => !t.detached)
   const maxId = maximizedTermId && visible.some(t => t.id === maximizedTermId) ? maximizedTermId : null
-  const { rows, cols } = gridDims(visible.length)
-  const effectiveFocus = focused && visible.some(t => t.id === focused) ? focused : (visible[0]?.id ?? null)
+  const { rows, cols, spans } = tileLayout(layout, visible.length)
+  const effectiveFocus = focusedTermId && visible.some(t => t.id === focusedTermId) ? focusedTermId : (visible[0]?.id ?? null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
@@ -74,7 +76,12 @@ export function ProjectGrid({ project }: { project: Project }) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px' }}>
         <span style={{ color: oceanic.textPrimary, fontSize: 14, fontWeight: 600 }}>{project.name}</span>
-        <button className="btn-pill" onClick={() => addTerminal(project.id)}>＋ New terminal</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {visible.length >= 2 && (
+            <LayoutToggle value={layout} onChange={(m) => setProjectLayout(project.id, m)} />
+          )}
+          <button className="btn-pill" onClick={() => addTerminal(project.id)}>＋ New terminal</button>
+        </div>
       </div>
       {visible.length === 0 ? (
         <div className="empty">No terminals yet — click ＋ New terminal</div>
@@ -88,13 +95,13 @@ export function ProjectGrid({ project }: { project: Project }) {
               flex: 1, display: 'grid', gap: 10, padding: '0 10px 10px', minHeight: 0,
               gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)`
             }}>
-              {visible.map(t => {
+              {visible.map((t, i) => {
                 const paneStyle: React.CSSProperties = maxId
                   ? (t.id === maxId ? { height: '100%' } : { display: 'none' })
-                  : {}
+                  : { gridColumn: `span ${spans[i] ?? 1}` }
                 return (
                   <TerminalPane key={t.id} projectId={project.id} termId={t.id} name={t.name} color={t.color}
-                    cwd={project.path} focused={effectiveFocus === t.id} onFocus={() => setFocused(t.id)}
+                    cwd={project.path} focused={effectiveFocus === t.id} onFocus={() => setFocusedTerm(t.id)}
                     maximized={t.id === maxId} onToggleMax={() => setMaximized(maxId === t.id ? null : t.id)}
                     dndEnabled={!maxId} paneStyle={paneStyle} />
                 )

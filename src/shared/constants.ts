@@ -17,8 +17,10 @@ export const IPC = {
   storeLoad: 'store:load',
   storeSave: 'store:save',
   pickFolder: 'dialog:pickFolder',
-  fsExists: 'fs:exists'
+  fsExists: 'fs:exists',
+  clipboardRead: 'clipboard:read',
+  clipboardWrite: 'clipboard:write',
+  openPath: 'shell:openPath'
 } as const
 
 export const DEFAULT_SIDEBAR_PCT = 25
-export const IDLE_FALLBACK_MS = 2500
