@@ -23,6 +23,7 @@ vi.mock('@homebridge/node-pty-prebuilt-multiarch', () => ({
 }))
 
 import { PtyManager } from '../src/main/ptyManager'
+import { AGENTS } from '../src/shared/agents'
 
 const opts = { id: 't1', cwd: '.', eventUrl: 'http://x/event', cols: 80, rows: 24 }
 
@@ -51,5 +52,42 @@ describe('PtyManager status inference', () => {
     mgr.spawn(opts)
     lastPty.emitExit(1)
     expect(onExit).toHaveBeenCalledWith('t1', 1)
+  })
+})
+
+describe('PtyManager agent launch command', () => {
+  const launched = () => lastPty.written[0]
+
+  it('launches the selected CLI', () => {
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'gemini' })
+    expect(launched()).toBe(AGENTS.gemini.command + '\r')
+
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'kimi' })
+    expect(launched()).toBe(AGENTS.kimi.command + '\r')
+
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'codex' })
+    expect(launched()).toBe(AGENTS.codex.command + '\r')
+  })
+
+  it('falls back to Claude when no agent is given (terminals saved before the picker existed)', () => {
+    new PtyManager(vi.fn(), vi.fn()).spawn(opts)
+    expect(launched()).toBe(AGENTS.claude.command + '\r')
+  })
+
+  it('falls back to Claude for an unrecognised agent id rather than running nothing', () => {
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'not-an-agent' })
+    expect(launched()).toBe(AGENTS.claude.command + '\r')
+  })
+
+  it('appends --resume for a Claude session id, and only for a valid uuid', () => {
+    const sid = '11111111-2222-3333-4444-555555555555'
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'claude', resume: sid })
+    expect(launched()).toBe(`${AGENTS.claude.command} --resume ${sid}\r`)
+
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'claude', resume: 'x; rm -rf /' })
+    expect(launched()).toBe(AGENTS.claude.command + '\r')
+
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'codex', resume: sid })
+    expect(launched()).toBe(AGENTS.codex.command + '\r')
   })
 })

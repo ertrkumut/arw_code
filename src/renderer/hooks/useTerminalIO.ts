@@ -3,9 +3,10 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { oceanic } from '../theme'
 import { useApp } from '../store/appStore'
+import type { AgentId } from '@shared/agents'
 import '@xterm/xterm/css/xterm.css'
 
-export function useTerminalIO(id: string, cwd: string) {
+export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
   const elRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -45,8 +46,9 @@ export function useTerminalIO(id: string, cwd: string) {
     safeFit()
 
     // Ctrl/Cmd+V pastes, Ctrl/Cmd+C copies the selection (falling back to ^C
-    // SIGINT when nothing is selected). Returning false stops xterm from also
-    // forwarding the keystroke to the shell. Shift+Insert pastes too.
+    // SIGINT when nothing is selected), Shift/Alt+Enter inserts a newline.
+    // Returning false stops xterm from also forwarding the keystroke to the
+    // shell. Shift+Insert pastes too.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true
       const mod = e.ctrlKey || e.metaKey
@@ -56,7 +58,36 @@ export function useTerminalIO(id: string, cwd: string) {
         // native `paste` event into xterm's hidden textarea, so xterm pastes a
         // SECOND time on top of our manual term.paste — the double-paste bug.
         e.preventDefault()
-        window.arw.clipboardRead().then((text) => { if (text) term.paste(text) })
+        void (async () => {
+          const text = await window.arw.clipboardRead()
+          if (text) { term.paste(text); return }
+          // Image-only clipboard: keep a thumbnail on the pane, then hand the CLI its
+          // own image-paste key so it attaches the picture. Claude Code on Windows
+          // listens for Alt+V (ESC v); the other CLIs take a raw Ctrl+V.
+          const img = await window.arw.clipboardReadImage()
+          if (!img) return
+          useApp.getState().addImage(id, img)
+          window.arw.input(id, (agent ?? 'claude') === 'claude' ? '\x1bv' : '\x16')
+        })()
+        return false
+      }
+      // Alt+V is Claude Code's own image paste — let it through untouched, but grab
+      // the same clipboard image for the pane's thumbnail strip.
+      if (e.altKey && !mod && key === 'v') {
+        window.arw.clipboardReadImage().then((img) => { if (img) useApp.getState().addImage(id, img) })
+        return true
+      }
+      // Shift+Enter (and Alt+Enter, the chord Claude Code uses on macOS) insert
+      // a newline instead of submitting. xterm drops the modifier and sends a
+      // carriage return, which every agent CLI reads as "run it" — a bare line
+      // feed is the other half of that pair, so the TUI's input box just grows
+      // by one empty line and nothing is echoed. preventDefault keeps the
+      // browser from also dropping a newline into xterm's hidden textarea.
+      // Plain shells bind LF to accept-line too, so this only does something
+      // useful once an agent is running — which is where it's wanted.
+      if (key === 'enter' && (e.shiftKey || e.altKey) && !mod) {
+        e.preventDefault()
+        window.arw.input(id, '\n')
         return false
       }
       if (mod && key === 'c' && term.hasSelection()) {
@@ -66,7 +97,9 @@ export function useTerminalIO(id: string, cwd: string) {
       return true
     })
 
-    window.arw.spawn(id, cwd, term.cols, term.rows)
+    // A terminal opened from the history dialog continues that Claude session (one-shot:
+    // later re-mounts hit the already-running pty, and a relaunch starts fresh).
+    window.arw.spawn(id, cwd, term.cols, term.rows, agent, useApp.getState().takeResume(id))
 
     // Auto-focus a freshly created terminal so the user can start typing without
     // clicking into the pane. Only fires for the terminal addTerminal just flagged
@@ -87,6 +120,11 @@ export function useTerminalIO(id: string, cwd: string) {
     })
 
     term.onData((d) => window.arw.input(id, d))
+    // Claude Code sets the window title to a summary of the current conversation
+    // (and updates it on /resume). Use it as the pane name until the user renames it.
+    if ((agent ?? 'claude') === 'claude') {
+      term.onTitleChange((title) => useApp.getState().autoNameTerminal(id, title))
+    }
     const offData = window.arw.onData(({ id: tid, data }) => { if (tid === id) term.write(data) })
 
     const refit = () => { if (safeFit()) window.arw.resize(id, term.cols, term.rows) }
@@ -121,7 +159,7 @@ export function useTerminalIO(id: string, cwd: string) {
       ro.disconnect()
       term.dispose()
     }
-  }, [id, cwd])
+  }, [id, cwd, agent])
 
   return elRef
 }

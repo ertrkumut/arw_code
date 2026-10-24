@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { IPC } from '@shared/constants'
 import { PtyManager } from './ptyManager'
 import { loadState, saveStateDebounced } from './store'
+import { listSessions, deleteSession } from './claudeHistory'
 import type { WindowManager } from './windows'
 
 export function registerIpc(wm: WindowManager, eventUrl: () => string) {
@@ -17,8 +18,8 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   )
   wm.onKill = (id) => mgr.kill(id)   // a torn-off window closing kills its shell
 
-  ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows }) =>
-    mgr.spawn({ id, cwd, cols, rows, eventUrl: eventUrl() }))
+  ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows, agent, resume }) =>
+    mgr.spawn({ id, cwd, cols, rows, agent, resume, eventUrl: eventUrl() }))
   ipcMain.on(IPC.ptyInput, (_e, { id, data }) => mgr.write(id, data))
   ipcMain.on(IPC.ptyResize, (_e, { id, cols, rows }) => mgr.resize(id, cols, rows))
   ipcMain.on(IPC.ptyKill, (_e, { id }) => mgr.kill(id))
@@ -38,9 +39,18 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   // the file:// renderer (non-secure context), so route copy/paste through Electron.
   ipcMain.handle(IPC.clipboardRead, () => clipboard.readText())
   ipcMain.on(IPC.clipboardWrite, (_e, text: string) => clipboard.writeText(text))
+  ipcMain.handle(IPC.clipboardReadImage, () => {
+    const img = clipboard.readImage()
+    return img.isEmpty() ? null : img.toDataURL()
+  })
 
   // Open a project folder in the OS file manager (Explorer/Finder/etc).
   ipcMain.on(IPC.openPath, (_e, p: string) => { void shell.openPath(p) })
+
+  // Claude Code conversation history for a project folder (~/.claude/projects/<folder>).
+  ipcMain.handle(IPC.historyList, (_e, projectPath: string) => listSessions(projectPath))
+  ipcMain.handle(IPC.historyDelete, (_e, p: { projectPath: string; id: string }) =>
+    deleteSession(p.projectPath, p.id))
 
   return mgr
 }

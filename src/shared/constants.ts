@@ -20,7 +20,10 @@ export const IPC = {
   fsExists: 'fs:exists',
   clipboardRead: 'clipboard:read',
   clipboardWrite: 'clipboard:write',
-  openPath: 'shell:openPath'
+  clipboardReadImage: 'clipboard:readImage', // renderer -> main (invoke): clipboard image as a PNG data URL, or null
+  openPath: 'shell:openPath',
+  historyList: 'history:list',             // renderer -> main (invoke): Claude sessions saved for a folder
+  historyDelete: 'history:delete'          // renderer -> main (invoke): delete one saved Claude session
 } as const
 
 export const DEFAULT_SIDEBAR_PCT = 25

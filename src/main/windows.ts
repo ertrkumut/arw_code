@@ -49,7 +49,7 @@ export class WindowManager {
   }
 
   /** Pop a terminal into its own window near where it was dropped. */
-  tearOff(p: { termId: string; name: string; color?: string; cwd: string; screenX: number; screenY: number }): void {
+  tearOff(p: { termId: string; name: string; color?: string; cwd: string; agent?: string; screenX: number; screenY: number }): void {
     const existing = this.children.get(p.termId)
     if (existing && !existing.isDestroyed()) { existing.focus(); return }
 
@@ -63,6 +63,7 @@ export class WindowManager {
     const search = `?term=${encodeURIComponent(p.termId)}`
       + `&name=${encodeURIComponent(p.name)}`
       + (p.color ? `&color=${encodeURIComponent(p.color)}` : '')
+      + (p.agent ? `&agent=${encodeURIComponent(p.agent)}` : '')
       + `&cwd=${encodeURIComponent(p.cwd)}`
     if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + search)
     else win.loadFile(RENDERER_FILE(), { search })

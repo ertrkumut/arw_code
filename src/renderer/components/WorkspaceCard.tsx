@@ -9,7 +9,7 @@ import { Dot } from './Dot'
 import type { Project } from '@shared/types'
 
 export function WorkspaceCard({ project }: { project: Project }) {
-  const { selectedProjectId, selectProject, removeProject, setProjectColor, statuses } = useApp()
+  const { selectedProjectId, selectProject, removeProject, setProjectColor, openHistory, statuses } = useApp()
   const selected = selectedProjectId === project.id
   const agg = aggregateState(project.terminals.map(t => statuses[t.id] ?? 'idle'))
   const showDot = project.terminals.length > 0 && agg !== 'idle'
@@ -48,6 +48,7 @@ export function WorkspaceCard({ project }: { project: Project }) {
         <ContextMenu x={menu.x} y={menu.y} onClose={closeMenu}
           items={showColors ? undefined : [
             { label: 'Open folder in Explorer', onClick: () => window.arw.openInExplorer(project.path) },
+            { label: 'Conversation history', onClick: () => openHistory(project.id) },
             { label: 'Change color ▸', keepOpen: true, onClick: () => setShowColors(true) },
             { label: 'Remove project', danger: true, onClick: () => { if (confirm(`Remove ${project.name}?`)) removeProject(project.id) } }
           ]}>

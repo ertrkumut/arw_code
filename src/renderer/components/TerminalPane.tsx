@@ -6,15 +6,19 @@ import { useApp } from '../store/appStore'
 import { ContextMenu } from './ContextMenu'
 import { ColorSwatchPicker } from './ColorSwatchPicker'
 import { Dot } from './Dot'
+import { AgentBadge } from './AgentBadge'
+import { ImageStrip } from './ImageStrip'
 import type { TermState } from '@shared/types'
+import type { AgentId } from '@shared/agents'
 
-function PaneBody({ termId, cwd }: { termId: string; cwd: string }) {
-  const ref = useTerminalIO(termId, cwd)
+function PaneBody({ termId, cwd, agent }: { termId: string; cwd: string; agent?: AgentId }) {
+  const ref = useTerminalIO(termId, cwd, agent)
   return <div ref={ref} style={{ flex: 1, minHeight: 0, padding: '4px 8px 6px', background: 'var(--bg-terminal)' }} />
 }
 
-export function TerminalPane({ projectId, termId, name, color, cwd, focused, onFocus, maximized, onToggleMax, dndEnabled, paneStyle }:
-  { projectId: string; termId: string; name: string; color?: string; cwd: string; focused: boolean; onFocus: () => void
+export function TerminalPane({ projectId, termId, name, color, cwd, agent, focused, onFocus, maximized, onToggleMax, dndEnabled, paneStyle }:
+  { projectId: string; termId: string; name: string; color?: string; cwd: string; agent?: AgentId
+    focused: boolean; onFocus: () => void
     maximized: boolean; onToggleMax: () => void; dndEnabled: boolean; paneStyle?: React.CSSProperties }) {
   const { statuses, requestRemoveTerminal, renameTerminal, setTerminalColor } = useApp()
   const state: TermState = statuses[termId] ?? 'idle'
@@ -70,6 +74,7 @@ export function TerminalPane({ projectId, termId, name, color, cwd, focused, onF
         <span ref={setActivatorNodeRef} className={`pane-title${editing ? '' : ' pane-drag'}`}
           {...(editing ? {} : attributes)} {...(editing ? {} : listeners)}>
           <Dot state={state} />
+          <AgentBadge agent={agent} />
           {editing ? (
             <input ref={inputRef} className="tname-input" value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -115,7 +120,10 @@ export function TerminalPane({ projectId, termId, name, color, cwd, focused, onF
           </div>
         </div>
       ) : (
-        <PaneBody key={attempt} termId={termId} cwd={cwd} />
+        <>
+          <ImageStrip termId={termId} />
+          <PaneBody key={attempt} termId={termId} cwd={cwd} agent={agent} />
+        </>
       )}
     </div>
   )

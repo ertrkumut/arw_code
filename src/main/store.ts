@@ -1,7 +1,8 @@
 import type { PersistedState, Project, Terminal, Group } from '@shared/types'
+import { DEFAULT_AGENT, toAgentId } from '@shared/agents'
 
 export function emptyState(): PersistedState {
-  return { version: 2, lastSelectedProjectId: null, projects: [], groups: [], sidebarCollapsed: false }
+  return { version: 2, lastSelectedProjectId: null, projects: [], groups: [], sidebarCollapsed: false, lastAgent: DEFAULT_AGENT }
 }
 
 export function addProject(s: PersistedState, p: Omit<Project, 'collapsed' | 'terminals' | 'groupId'>): PersistedState {
@@ -92,7 +93,9 @@ function migrate(parsed: any): PersistedState | null {
       lastSelectedProjectId: parsed.lastSelectedProjectId ?? null,
       projects: parsed.projects.map((p: any) => ({ ...p, groupId: p.groupId ?? null })),
       groups: Array.isArray(parsed.groups) ? parsed.groups : [],
-      sidebarCollapsed: !!parsed.sidebarCollapsed
+      sidebarCollapsed: !!parsed.sidebarCollapsed,
+      sidebarWidthPct: parsed.sidebarWidthPct,
+      lastAgent: toAgentId(parsed.lastAgent)
     }
   }
   if (parsed.version === 1) {

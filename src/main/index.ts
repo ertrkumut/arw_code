@@ -5,6 +5,16 @@ import { IPC } from '@shared/constants'
 import { installHooks } from './hookInstaller'
 import { WindowManager } from './windows'
 
+// The installed .exe and this dev build otherwise share one userData dir — and therefore
+// one single-instance lock — so launching the dev build while the installed app is open
+// made the dev process fail the lock and quit instantly. Give dev its own userData
+// (separate lock + separate saved projects) so both can run side by side. Must run before
+// requestSingleInstanceLock() below.
+if (!app.isPackaged) {
+  app.setPath('userData', `${app.getPath('userData')}-dev`)
+  app.setName('ARWCode Dev')
+}
+
 const wm = new WindowManager()
 
 // Hold a single-instance lock. Two processes contending for Electron's GPU/disk

@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { useTerminalIO } from './hooks/useTerminalIO'
 import { Dot } from './components/Dot'
+import { AgentBadge } from './components/AgentBadge'
+import { ImageStrip } from './components/ImageStrip'
+import { ImageLightbox } from './components/ImageLightbox'
 import { oceanic } from './theme'
 import type { TermState } from '@shared/types'
+import type { AgentId } from '@shared/agents'
 
 const drag = { WebkitAppRegion: 'drag' } as React.CSSProperties
 const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
@@ -13,8 +17,9 @@ const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
  * fresh xterm to the live pty. Dragging the grip back over the main window
  * reattaches; closing the OS window kills the shell (handled in the main process).
  */
-export function DetachedTerminalApp({ termId, name, color, cwd }: { termId: string; name: string; color?: string; cwd: string }) {
-  const elRef = useTerminalIO(termId, cwd)
+export function DetachedTerminalApp({ termId, name, color, cwd, agent }:
+  { termId: string; name: string; color?: string; cwd: string; agent?: AgentId }) {
+  const elRef = useTerminalIO(termId, cwd, agent)
   const [state, setState] = useState<TermState>('idle')
 
   useEffect(() => {
@@ -40,10 +45,12 @@ export function DetachedTerminalApp({ termId, name, color, cwd }: { termId: stri
         <span className="pane-title">
           <span className="pane-btn pane-grip" title="Drag back onto the grid to reattach"
             style={noDrag} onPointerDown={onGripDown}>⤧</span>
-          <Dot state={state} /><span className="tname">{name}</span>
+          <Dot state={state} /><AgentBadge agent={agent} /><span className="tname">{name}</span>
         </span>
       </div>
+      <ImageStrip termId={termId} />
       <div ref={elRef} style={{ flex: 1, minHeight: 0, background: oceanic.bgTerminal }} />
+      <ImageLightbox />
     </div>
   )
 }

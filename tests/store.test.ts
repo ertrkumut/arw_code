@@ -103,3 +103,26 @@ describe('migration v1 -> v2', () => {
     expect(s.lastSelectedProjectId).toBe('p1')
   })
 })
+
+describe('agent persistence', () => {
+  const v2 = (extra: Record<string, unknown>) => JSON.stringify({
+    version: 2, lastSelectedProjectId: null, projects: [], groups: [], sidebarCollapsed: false, ...extra
+  })
+
+  it('keeps a per-terminal agent through a save/load round-trip', () => {
+    let s = addProject(emptyState(), { id: 'p1', name: 'api', path: 'C:\\api' })
+    s = addTerminal(s, 'p1', { id: 't1', name: 'terminal 1', agent: 'gemini' })
+    const back = deserialize(serialize(s))
+    expect(back.projects[0].terminals[0].agent).toBe('gemini')
+  })
+
+  it('restores lastAgent, and falls back to claude when it is missing or junk', () => {
+    expect(deserialize(v2({ lastAgent: 'kimi' })).lastAgent).toBe('kimi')
+    expect(deserialize(v2({})).lastAgent).toBe('claude')
+    expect(deserialize(v2({ lastAgent: 'bogus' })).lastAgent).toBe('claude')
+  })
+
+  it('no longer drops sidebarWidthPct on load', () => {
+    expect(deserialize(v2({ sidebarWidthPct: 31 })).sidebarWidthPct).toBe(31)
+  })
+})

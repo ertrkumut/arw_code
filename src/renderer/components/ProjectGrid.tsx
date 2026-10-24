@@ -9,11 +9,12 @@ import { tileLayout } from '@shared/tiling'
 import { oceanic } from '../theme'
 import { TerminalPane } from './TerminalPane'
 import { LayoutToggle } from './LayoutToggle'
+import { NewTerminalButton } from './AgentPicker'
 import type { Project } from '@shared/types'
 
 export function ProjectGrid({ project }: { project: Project }) {
-  const { addTerminal, moveTerminal, detachTerminal, maximizedTermId, setMaximized, setProjectLayout,
-    focusedTermId, setFocusedTerm } = useApp()
+  const { addTerminal, moveTerminal, detachTerminal, maximizedTermId, setMaximized,
+    setProjectLayout, focusedTermId, setFocusedTerm, lastAgent } = useApp()
   const ptr = useRef<{ x: number; y: number } | null>(null)
 
   const layout = project.layout ?? 'grid'
@@ -57,7 +58,8 @@ export function ProjectGrid({ project }: { project: Project }) {
       const t = visible.find(x => x.id === active.id)
       if (t) {
         window.arw.tearOff({
-          projectId: project.id, termId: t.id, name: t.name, color: t.color, cwd: project.path,
+          projectId: project.id, termId: t.id, name: t.name, color: t.color,
+          cwd: project.path, agent: t.agent,
           screenX: p!.x, screenY: p!.y
         })
         detachTerminal(t.id)
@@ -80,11 +82,11 @@ export function ProjectGrid({ project }: { project: Project }) {
           {visible.length >= 2 && (
             <LayoutToggle value={layout} onChange={(m) => setProjectLayout(project.id, m)} />
           )}
-          <button className="btn-pill" onClick={() => addTerminal(project.id)}>＋ New terminal</button>
+          <NewTerminalButton value={lastAgent} onPick={(a) => addTerminal(project.id, a)} />
         </div>
       </div>
       {visible.length === 0 ? (
-        <div className="empty">No terminals yet — click ＋ New terminal</div>
+        <div className="empty">No terminals yet — pick a CLI with the ＋ button above</div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter}
           onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>
@@ -101,7 +103,8 @@ export function ProjectGrid({ project }: { project: Project }) {
                   : { gridColumn: `span ${spans[i] ?? 1}` }
                 return (
                   <TerminalPane key={t.id} projectId={project.id} termId={t.id} name={t.name} color={t.color}
-                    cwd={project.path} focused={effectiveFocus === t.id} onFocus={() => setFocusedTerm(t.id)}
+                    cwd={project.path} agent={t.agent}
+                    focused={effectiveFocus === t.id} onFocus={() => setFocusedTerm(t.id)}
                     maximized={t.id === maxId} onToggleMax={() => setMaximized(maxId === t.id ? null : t.id)}
                     dndEnabled={!maxId} paneStyle={paneStyle} />
                 )

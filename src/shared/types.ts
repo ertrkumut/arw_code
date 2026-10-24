@@ -1,3 +1,5 @@
+import type { AgentId } from './agents'
+
 export type TermState = 'working' | 'needs-you' | 'idle' | 'error'
 
 /** How a project's terminals tile. vertical = stacked (one column),
@@ -12,6 +14,11 @@ export interface Terminal {
   color?: string
   /** Transient: true while the terminal lives in a torn-off window. Never persisted. */
   detached?: boolean
+  /** Which CLI this terminal launched. Undefined = 'claude' (pre-agent-picker terminals). Persisted. */
+  agent?: AgentId
+  /** True while the name follows the title the CLI sets; false once the user renames it.
+   *  Undefined (older terminals) = auto only if still on the default "terminal N". Persisted. */
+  autoName?: boolean
 }
 
 export interface Group {
@@ -42,6 +49,8 @@ export interface PersistedState {
   groups: Group[]
   sidebarCollapsed: boolean
   sidebarWidthPct?: number
+  /** Agent picked for the most recent terminal — the default for Ctrl+N. */
+  lastAgent?: AgentId
 }
 
 /** Event posted by a Claude hook to the Status Bridge. */

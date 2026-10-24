@@ -8,6 +8,7 @@ import '@fontsource/jetbrains-mono/500.css'
 import './global.css'
 import App from './App'
 import { DetachedTerminalApp } from './DetachedTerminalApp'
+import { toAgentId } from '@shared/agents'
 
 const params = new URLSearchParams(window.location.search)
 const term = params.get('term')
@@ -15,6 +16,7 @@ const root = createRoot(document.getElementById('root')!)
 root.render(
   term
     ? <DetachedTerminalApp termId={term} name={params.get('name') ?? 'terminal'}
-        color={params.get('color') ?? undefined} cwd={params.get('cwd') ?? ''} />
+        color={params.get('color') ?? undefined} cwd={params.get('cwd') ?? ''}
+        agent={toAgentId(params.get('agent'))} />
     : <App />
 )

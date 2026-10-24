@@ -5,6 +5,8 @@ import { Sidebar } from './components/Sidebar'
 import { SidebarRail } from './components/SidebarRail'
 import { TerminalGrid } from './components/TerminalGrid'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { HistoryDialog } from './components/HistoryDialog'
+import { ImageLightbox } from './components/ImageLightbox'
 import { oceanic } from './theme'
 import { DEFAULT_SIDEBAR_PCT } from '@shared/constants'
 import type { TermState } from '@shared/types'
@@ -40,7 +42,7 @@ export default function App() {
       if (ae instanceof HTMLInputElement && ae.classList.contains('tname-input')) return
 
       const st = useApp.getState()
-      if (st.closeRequest) return   // the confirm dialog owns the keyboard while open
+      if (st.closeRequest || st.historyFor || st.lightbox) return   // a modal owns the keyboard while open
 
       // Visible terminals of the selected project, in grid order.
       const proj = st.projects.find(p => p.id === st.selectedProjectId)
@@ -133,6 +135,8 @@ export default function App() {
           onCancel={cancelClose}
         />
       )}
+      <HistoryDialog />
+      <ImageLightbox />
     </div>
   )
 }

@@ -1,7 +1,16 @@
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
 import { ENV_TERMINAL_ID, ENV_EVENT_URL } from '@shared/constants'
+import { resolveAgent } from '@shared/agents'
+import { ensureUnityMcp } from './unityMcp'
+import { SESSION_ID_RE } from './claudeHistory'
 
-export interface SpawnOpts { id: string; cwd: string; eventUrl: string; cols: number; rows: number }
+export interface SpawnOpts {
+  id: string; cwd: string; eventUrl: string; cols: number; rows: number
+  /** Which CLI to launch. Omitted / unknown falls back to Claude. */
+  agent?: string
+  /** Claude session id to continue (`--resume <id>`). Ignored for other agents. */
+  resume?: string
+}
 
 type DataCb = (id: string, data: string) => void
 type ExitCb = (id: string, code: number) => void
@@ -38,7 +47,11 @@ export class PtyManager {
     p.onData((d) => this.onData(opts.id, d))
     p.onExit(({ exitCode }) => { this.procs.delete(opts.id); this.onExit(opts.id, exitCode) })
     this.procs.set(opts.id, p)
-    p.write('claude --dangerously-skip-permissions\r')
+    const def = resolveAgent(opts.agent)
+    // Only a well-formed uuid is ever appended — this string is typed into a shell.
+    const resume = def.id === 'claude' && opts.resume && SESSION_ID_RE.test(opts.resume)
+      ? ` --resume ${opts.resume}` : ''
+    p.write(def.command + resume + '\r')
   }
 
   write(id: string, data: string) { this.procs.get(id)?.write(data) }
