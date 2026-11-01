@@ -64,6 +64,36 @@ export async function listSessions(projectPath: string, home = claudeHome()): Pr
   return out.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
+/** Cap on images pulled from one transcript — each is megabytes of base64. */
+const MAX_SESSION_IMAGES = 40
+
+/** Images the user sent in a transcript, as data URLs, oldest first (latest MAX_SESSION_IMAGES). */
+export function transcriptImages(text: string): string[] {
+  const out: string[] = []
+  for (const line of text.split('\n')) {
+    // Only top-level user content: images inside tool results (screenshots Claude read) are skipped.
+    if (!line.includes('"type":"image"') || !line.includes('"type":"user"')) continue
+    try {
+      const e = JSON.parse(line)
+      const c = e.type === 'user' ? e.message?.content : undefined
+      if (!Array.isArray(c)) continue
+      for (const b of c) {
+        const s = b?.type === 'image' ? b.source : undefined
+        if (s?.type === 'base64' && typeof s.data === 'string' && /^image\/[a-z+.-]+$/.test(s.media_type))
+          out.push(`data:${s.media_type};base64,${s.data}`)
+      }
+    } catch { /* partial line */ }
+  }
+  return out.slice(-MAX_SESSION_IMAGES)
+}
+
+/** Images sent in one session of this folder. Missing transcript → []. */
+export async function sessionImages(projectPath: string, id: string, home = claudeHome()): Promise<string[]> {
+  if (!SESSION_ID_RE.test(id)) return []
+  try { return transcriptImages(await readFile(join(claudeProjectDir(projectPath, home), `${id}.jsonl`), 'utf8')) }
+  catch { return [] }
+}
+
 /** Delete a session's transcript plus its sidecar folder (subagent logs, tool outputs). */
 export async function deleteSession(projectPath: string, id: string, home = claudeHome()): Promise<void> {
   if (!SESSION_ID_RE.test(id)) throw new Error('invalid session id')

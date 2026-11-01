@@ -95,7 +95,9 @@ function migrate(parsed: any): PersistedState | null {
       groups: Array.isArray(parsed.groups) ? parsed.groups : [],
       sidebarCollapsed: !!parsed.sidebarCollapsed,
       sidebarWidthPct: parsed.sidebarWidthPct,
-      lastAgent: toAgentId(parsed.lastAgent)
+      lastAgent: toAgentId(parsed.lastAgent),
+      explorerOpen: typeof parsed.explorerOpen === 'boolean' ? parsed.explorerOpen : undefined,
+      explorerWidth: typeof parsed.explorerWidth === 'number' ? parsed.explorerWidth : undefined
     }
   }
   if (parsed.version === 1) {

@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 import type { PersistedState, Project, Group, TermState, LayoutMode } from '@shared/types'
 import { DEFAULT_AGENT, toAgentId, type AgentId } from '@shared/agents'
-import { DEFAULT_SIDEBAR_PCT } from '@shared/constants'
+import { DEFAULT_SIDEBAR_PCT, DEFAULT_EXPLORER_WIDTH } from '@shared/constants'
 import { cleanAgentTitle, DEFAULT_NAME_RE } from '@shared/termTitle'
 
 const SIDEBAR_MIN_PCT = 15
 const SIDEBAR_MAX_PCT = 45
+const clampExplorer = (px: number) => Math.min(640, Math.max(180, Math.round(px)))
 const clampSidebar = (pct: number) =>
   Math.min(SIDEBAR_MAX_PCT, Math.max(SIDEBAR_MIN_PCT, Math.round(pct * 10) / 10))
 
@@ -15,6 +16,8 @@ interface AppState {
   selectedProjectId: string | null
   sidebarCollapsed: boolean
   sidebarWidthPct: number
+  explorerOpen: boolean
+  explorerWidth: number
   statuses: Record<string, TermState>   // terminalId -> state
   // Agent used for the most recent terminal — the default the picker and Ctrl+N open with.
   lastAgent: AgentId
@@ -27,8 +30,15 @@ interface AppState {
   historyFor: { projectId: string } | null
   // transient: terminalId -> images pasted into it this session (PNG data URLs, oldest first)
   images: Record<string, string[]>
+  // transient: terminalId -> images pasted for the prompt being typed (the thumbnail strip);
+  // emptied when the prompt is sent
+  pendingImages: Record<string, string[]>
+  // transient: the Ctrl+I session-images panel is open for this terminal (null = closed)
+  assetsFor: { termId: string; dir: string } | null
   // transient: image shown full-size over the app (null = closed)
   lightbox: string | null
+  // transient: terminal the full-size image was opened from (its "use again" target)
+  lightboxTerm: string | null
   // transient: terminalId -> Claude session id its shell should `--resume` on first spawn
   resumeSessions: Record<string, string>
   loaded: boolean
@@ -48,9 +58,14 @@ interface AppState {
   // Read-and-clear the pending resume id for a terminal (called once at spawn).
   takeResume: (termId: string) => string | undefined
   addImage: (termId: string, dataUrl: string) => void
-  removeImage: (termId: string, index: number) => void
+  // Drop one thumbnail from the strip (the session history keeps it).
+  removePendingImage: (termId: string, index: number) => void
+  // The prompt was sent: empty the strip.
+  clearPendingImages: (termId: string) => void
   clearImages: (termId: string) => void
-  setLightbox: (dataUrl: string | null) => void
+  setLightbox: (dataUrl: string | null, termId?: string) => void
+  openAssets: (termId: string, dir: string) => void
+  closeAssets: () => void
   removeTerminal: (projectId: string, termId: string) => void
   // Close a terminal, but if Claude is `working` in it, stage a confirmation instead.
   requestRemoveTerminal: (projectId: string, termId: string) => void
@@ -81,6 +96,9 @@ interface AppState {
   // sidebar
   toggleSidebar: () => void
   setSidebarWidth: (pct: number, commit?: boolean) => void
+  // file explorer (right side)
+  toggleExplorer: () => void
+  setExplorerWidth: (px: number, commit?: boolean) => void
 }
 
 const MAX_IMAGES = 12
@@ -89,9 +107,9 @@ const uid = () => Math.random().toString(36).slice(2, 10)
 
 export const useApp = create<AppState>((set, get) => ({
   projects: [], groups: [], selectedProjectId: null, sidebarCollapsed: false,
-  sidebarWidthPct: DEFAULT_SIDEBAR_PCT, statuses: {}, lastAgent: DEFAULT_AGENT,
+  sidebarWidthPct: DEFAULT_SIDEBAR_PCT, explorerOpen: true, explorerWidth: DEFAULT_EXPLORER_WIDTH, statuses: {}, lastAgent: DEFAULT_AGENT,
   maximizedTermId: null, focusedTermId: null, autoFocusTermId: null, closeRequest: null,
-  historyFor: null, images: {}, lightbox: null, resumeSessions: {}, loaded: false,
+  historyFor: null, images: {}, pendingImages: {}, assetsFor: null, lightbox: null, lightboxTerm: null, resumeSessions: {}, loaded: false,
 
   load: async () => {
     const s: PersistedState = await window.arw.loadStore()
@@ -102,11 +120,13 @@ export const useApp = create<AppState>((set, get) => ({
       sidebarCollapsed: !!s.sidebarCollapsed,
       sidebarWidthPct: clampSidebar(s.sidebarWidthPct ?? DEFAULT_SIDEBAR_PCT),
       lastAgent: toAgentId(s.lastAgent),
+      explorerOpen: s.explorerOpen ?? true,
+      explorerWidth: clampExplorer(s.explorerWidth ?? DEFAULT_EXPLORER_WIDTH),
       loaded: true
     })
   },
   persist: () => {
-    const { projects, groups, selectedProjectId, sidebarCollapsed, sidebarWidthPct, lastAgent } = get()
+    const { projects, groups, selectedProjectId, sidebarCollapsed, sidebarWidthPct, lastAgent, explorerOpen, explorerWidth } = get()
     // `detached` is session-only — strip it so a torn-off terminal returns to
     // the grid on next launch instead of vanishing.
     const cleanProjects = projects.map(p => ({
@@ -120,7 +140,9 @@ export const useApp = create<AppState>((set, get) => ({
       groups,
       sidebarCollapsed,
       sidebarWidthPct,
-      lastAgent
+      lastAgent,
+      explorerOpen,
+      explorerWidth
     } satisfies PersistedState)
   },
   selectProject: (id) => { set({ selectedProjectId: id }); get().persist() },
@@ -188,18 +210,30 @@ export const useApp = create<AppState>((set, get) => ({
   },
   addImage: (termId, dataUrl) => set((st) => {
     const list = st.images[termId] ?? []
-    if (list[list.length - 1] === dataUrl) return st   // same clipboard pasted twice
+    const pending = st.pendingImages[termId] ?? []
+    if (pending[pending.length - 1] === dataUrl) return st   // same clipboard pasted twice
     // Keep only the most recent few: each full-size screenshot is megabytes of base64.
-    return { images: { ...st.images, [termId]: [...list, dataUrl].slice(-MAX_IMAGES) } }
+    return {
+      images: { ...st.images, [termId]: [...list, dataUrl].slice(-MAX_IMAGES) },
+      pendingImages: { ...st.pendingImages, [termId]: [...pending, dataUrl] }
+    }
   }),
-  removeImage: (termId, index) => set((st) => ({
-    images: { ...st.images, [termId]: (st.images[termId] ?? []).filter((_, i) => i !== index) }
+  removePendingImage: (termId, index) => set((st) => ({
+    pendingImages: { ...st.pendingImages, [termId]: (st.pendingImages[termId] ?? []).filter((_, i) => i !== index) }
   })),
+  clearPendingImages: (termId) => set((st) => {
+    if (!st.pendingImages[termId]) return st
+    const { [termId]: _, ...rest } = st.pendingImages
+    return { pendingImages: rest }
+  }),
   clearImages: (termId) => set((st) => {
     const { [termId]: _, ...rest } = st.images
-    return { images: rest }
+    const { [termId]: __, ...restPending } = st.pendingImages
+    return { images: rest, pendingImages: restPending }
   }),
-  setLightbox: (dataUrl) => set({ lightbox: dataUrl }),
+  setLightbox: (dataUrl, termId) => set({ lightbox: dataUrl, lightboxTerm: dataUrl ? termId ?? null : null }),
+  openAssets: (termId, dir) => set({ assetsFor: { termId, dir } }),
+  closeAssets: () => set({ assetsFor: null }),
   removeTerminal: (projectId, termId) => {
     window.arw.kill(termId)   // explicit kill (no longer killed on unmount)
     set((st) => ({
@@ -346,6 +380,16 @@ export const useApp = create<AppState>((set, get) => ({
   // Live drag updates pass commit=false (no disk write); release commits + persists.
   setSidebarWidth: (pct, commit = true) => {
     set({ sidebarWidthPct: clampSidebar(pct) })
+    if (commit) get().persist()
+  },
+
+  // ---- file explorer ----
+  toggleExplorer: () => {
+    set((st) => ({ explorerOpen: !st.explorerOpen }))
+    get().persist()
+  },
+  setExplorerWidth: (px, commit = true) => {
+    set({ explorerWidth: clampExplorer(px) })
     if (commit) get().persist()
   }
 }))

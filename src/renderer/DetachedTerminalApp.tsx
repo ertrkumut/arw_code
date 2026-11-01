@@ -4,6 +4,7 @@ import { Dot } from './components/Dot'
 import { AgentBadge } from './components/AgentBadge'
 import { ImageStrip } from './components/ImageStrip'
 import { ImageLightbox } from './components/ImageLightbox'
+import { AssetsPanel } from './components/AssetsPanel'
 import { oceanic } from './theme'
 import type { TermState } from '@shared/types'
 import type { AgentId } from '@shared/agents'
@@ -50,6 +51,7 @@ export function DetachedTerminalApp({ termId, name, color, cwd, agent }:
       </div>
       <ImageStrip termId={termId} />
       <div ref={elRef} style={{ flex: 1, minHeight: 0, background: oceanic.bgTerminal }} />
+      <AssetsPanel />
       <ImageLightbox />
     </div>
   )

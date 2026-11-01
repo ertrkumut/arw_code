@@ -51,6 +51,10 @@ export interface PersistedState {
   sidebarWidthPct?: number
   /** Agent picked for the most recent terminal — the default for Ctrl+N. */
   lastAgent?: AgentId
+  /** Right-side file explorer visible. Undefined = open. */
+  explorerOpen?: boolean
+  /** File explorer width in px. */
+  explorerWidth?: number
 }
 
 /** Event posted by a Claude hook to the Status Bridge. */

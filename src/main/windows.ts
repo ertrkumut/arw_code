@@ -1,11 +1,17 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
+import { existsSync } from 'fs'
 import { IPC } from '@shared/constants'
 
 const PRELOAD = () => join(__dirname, '../preload/index.js')
 const RENDERER_FILE = () => join(__dirname, '../renderer/index.html')
 
+// Dev builds show the dog icon on the window/taskbar; the packaged .exe already carries build/icon.ico.
+const DEV_ICON = join(__dirname, '../../build/icon.png')
+const iconOpt = existsSync(DEV_ICON) ? { icon: DEV_ICON } : {}
+
 const baseWindowOpts = {
+  ...iconOpt,
   backgroundColor: '#0E1016',
   titleBarStyle: 'hidden' as const,
   titleBarOverlay: { color: '#13151D', symbolColor: '#A6ADC0', height: 40 }
@@ -20,6 +26,7 @@ export class WindowManager {
   private main: BrowserWindow | null = null
   private children = new Map<string, BrowserWindow>()   // termId -> torn-off window
   private reattaching = new Set<string>()               // termIds closing to return to the grid (don't kill)
+  private ides = new Map<string, BrowserWindow>()       // projectId -> that project's IDE window
 
   /** Kill a terminal's shell. Set by registerIpc once the PtyManager exists. */
   onKill: (termId: string) => void = () => {}
@@ -75,6 +82,27 @@ export class WindowManager {
       this.onKill(p.termId)                                 // user closed the window — kill the shell
       this.broadcast(IPC.terminalClosed, { id: p.termId })  // and drop the tile from the grid
     })
+  }
+
+  /** Open (or focus) a project's IDE window. Returns true when a new window was created. */
+  openIde(p: { projectId: string; name: string; path: string }): boolean {
+    const existing = this.ides.get(p.projectId)
+    if (existing && !existing.isDestroyed()) {
+      if (existing.isMinimized()) existing.restore()
+      existing.focus()
+      return false
+    }
+    const win = new BrowserWindow({
+      width: 1440, height: 900, title: `${p.name} — ARWCode IDE`,
+      webPreferences: { preload: PRELOAD() },
+      ...baseWindowOpts
+    })
+    const search = `?ide=${encodeURIComponent(p.projectId)}&name=${encodeURIComponent(p.name)}&path=${encodeURIComponent(p.path)}`
+    if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + search)
+    else win.loadFile(RENDERER_FILE(), { search })
+    this.ides.set(p.projectId, win)
+    win.on('closed', () => { this.ides.delete(p.projectId) })
+    return true
   }
 
   /** Return a torn-off terminal to the grid if it was released over the main window. */

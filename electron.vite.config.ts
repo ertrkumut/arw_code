@@ -1,5 +1,5 @@
 import { resolve } from 'path'
-import { cpSync } from 'fs'
+import { cpSync, readFileSync } from 'fs'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
@@ -33,6 +33,8 @@ export default defineConfig({
     root: 'src/renderer',
     resolve: { alias: { '@shared': resolve('src/shared') } },
     plugins: [react()],
+    // Shown in the title bar; read from package.json so `npm version` is the only place to bump it.
+    define: { __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version) },
     build: { rollupOptions: { input: { index: resolve('src/renderer/index.html') } } }
   }
 })

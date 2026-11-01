@@ -57,6 +57,8 @@ describe('PtyManager status inference', () => {
 
 describe('PtyManager agent launch command', () => {
   const launched = () => lastPty.written[0]
+  // A fresh Claude terminal pins its own session id so its transcript can be found later.
+  const freshClaude = new RegExp(`^${AGENTS.claude.command} --session-id [0-9a-f-]{36}\\r$`)
 
   it('launches the selected CLI', () => {
     new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'gemini' })
@@ -71,23 +73,27 @@ describe('PtyManager agent launch command', () => {
 
   it('falls back to Claude when no agent is given (terminals saved before the picker existed)', () => {
     new PtyManager(vi.fn(), vi.fn()).spawn(opts)
-    expect(launched()).toBe(AGENTS.claude.command + '\r')
+    expect(launched()).toMatch(freshClaude)
   })
 
   it('falls back to Claude for an unrecognised agent id rather than running nothing', () => {
     new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'not-an-agent' })
-    expect(launched()).toBe(AGENTS.claude.command + '\r')
+    expect(launched()).toMatch(freshClaude)
   })
 
   it('appends --resume for a Claude session id, and only for a valid uuid', () => {
     const sid = '11111111-2222-3333-4444-555555555555'
-    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'claude', resume: sid })
+    const m = new PtyManager(vi.fn(), vi.fn())
+    m.spawn({ ...opts, agent: 'claude', resume: sid })
     expect(launched()).toBe(`${AGENTS.claude.command} --resume ${sid}\r`)
+    expect(m.claudeSession(opts.id)?.id).toBe(sid)
 
     new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'claude', resume: 'x; rm -rf /' })
-    expect(launched()).toBe(AGENTS.claude.command + '\r')
+    expect(launched()).toMatch(freshClaude)
 
-    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'codex', resume: sid })
+    const c = new PtyManager(vi.fn(), vi.fn())
+    c.spawn({ ...opts, agent: 'codex', resume: sid })
     expect(launched()).toBe(AGENTS.codex.command + '\r')
+    expect(c.claudeSession(opts.id)).toBeUndefined()
   })
 })

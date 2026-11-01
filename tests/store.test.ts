@@ -126,3 +126,12 @@ describe('agent persistence', () => {
     expect(deserialize(v2({ sidebarWidthPct: 31 })).sidebarWidthPct).toBe(31)
   })
 })
+
+describe('explorer panel state', () => {
+  it('round-trips explorerOpen/explorerWidth through serialize/deserialize', () => {
+    const s = { ...emptyState(), explorerOpen: false, explorerWidth: 333 }
+    const back = deserialize(serialize(s))
+    expect(back.explorerOpen).toBe(false)
+    expect(back.explorerWidth).toBe(333)
+  })
+})

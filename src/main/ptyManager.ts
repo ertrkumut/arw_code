@@ -3,6 +3,7 @@ import { ENV_TERMINAL_ID, ENV_EVENT_URL } from '@shared/constants'
 import { resolveAgent } from '@shared/agents'
 import { ensureUnityMcp } from './unityMcp'
 import { SESSION_ID_RE } from './claudeHistory'
+import { randomUUID } from 'node:crypto'
 
 export interface SpawnOpts {
   id: string; cwd: string; eventUrl: string; cols: number; rows: number
@@ -17,6 +18,7 @@ type ExitCb = (id: string, code: number) => void
 
 export class PtyManager {
   private procs = new Map<string, pty.IPty>()
+  private sessions = new Map<string, { id: string; cwd: string }>()
   constructor(
     private onData: DataCb,
     private onExit: ExitCb,
@@ -48,14 +50,24 @@ export class PtyManager {
     p.onExit(({ exitCode }) => { this.procs.delete(opts.id); this.onExit(opts.id, exitCode) })
     this.procs.set(opts.id, p)
     const def = resolveAgent(opts.agent)
-    // Only a well-formed uuid is ever appended — this string is typed into a shell.
-    const resume = def.id === 'claude' && opts.resume && SESSION_ID_RE.test(opts.resume)
-      ? ` --resume ${opts.resume}` : ''
-    p.write(def.command + resume + '\r')
+    let args = ''
+    if (def.id === 'claude') {
+      // Pin the session id up front (or reuse the resumed one) so this terminal's
+      // transcript — and the images sent in it — can be found later. Only a
+      // well-formed uuid is ever appended: this string is typed into a shell.
+      const resume = opts.resume && SESSION_ID_RE.test(opts.resume) ? opts.resume : null
+      const sid = resume ?? randomUUID()
+      this.sessions.set(opts.id, { id: sid, cwd: opts.cwd })
+      args = resume ? ` --resume ${sid}` : ` --session-id ${sid}`
+    }
+    p.write(def.command + args + '\r')
   }
+
+  /** The Claude session a terminal was launched with (undefined for other agents). */
+  claudeSession(id: string) { return this.sessions.get(id) }
 
   write(id: string, data: string) { this.procs.get(id)?.write(data) }
   resize(id: string, cols: number, rows: number) { this.procs.get(id)?.resize(cols, rows) }
-  kill(id: string) { this.procs.get(id)?.kill(); this.procs.delete(id) }
-  killAll() { for (const p of this.procs.values()) p.kill(); this.procs.clear() }
+  kill(id: string) { this.procs.get(id)?.kill(); this.procs.delete(id); this.sessions.delete(id) }
+  killAll() { for (const p of this.procs.values()) p.kill(); this.procs.clear(); this.sessions.clear() }
 }

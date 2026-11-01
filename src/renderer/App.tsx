@@ -7,17 +7,41 @@ import { TerminalGrid } from './components/TerminalGrid'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { HistoryDialog } from './components/HistoryDialog'
 import { ImageLightbox } from './components/ImageLightbox'
+import { AssetsPanel } from './components/AssetsPanel'
+import { FileExplorer } from './components/FileExplorer'
 import { oceanic } from './theme'
-import { DEFAULT_SIDEBAR_PCT } from '@shared/constants'
+import { DEFAULT_SIDEBAR_PCT, DEFAULT_EXPLORER_WIDTH } from '@shared/constants'
 import type { TermState } from '@shared/types'
 
 const RAIL_WIDTH = 54
 
+/** Right-side explorer of the main window: double-click opens the file in the project's IDE window. */
+function MainExplorer() {
+  const project = useApp(s => s.projects.find(p => p.id === s.selectedProjectId))
+  const toggleExplorer = useApp(s => s.toggleExplorer)
+  return (
+    <FileExplorer
+      project={project}
+      onHide={toggleExplorer}
+      hideTitle="Hide Explorer (Ctrl+Shift+E)"
+      onOpenFile={(file) => { if (project) window.arw.ide.open({ projectId: project.id, name: project.name, path: project.path, file }) }}
+      insertTarget={() => {
+        // The project's focused terminal, or its first visible one.
+        const st = useApp.getState()
+        const visible = (project?.terminals ?? []).filter(t => !t.detached).sort((a, b) => a.order - b.order)
+        const t = visible.find(x => x.id === st.focusedTermId) ?? visible[0]
+        return t ? { insert: (text) => { window.arw.input(t.id, text); st.focusTerminal(t.id) } } : null
+      }}
+    />
+  )
+}
+
 export default function App() {
   const { load, loaded, setStatus, sidebarCollapsed, sidebarWidthPct, setSidebarWidth,
-    closeRequest, confirmClose, cancelClose } = useApp()
+    closeRequest, confirmClose, cancelClose, explorerOpen, explorerWidth, setExplorerWidth } = useApp()
   const bodyRef = useRef<HTMLDivElement>(null)
   const [dragging, setDragging] = useState(false)
+  const [fxDragging, setFxDragging] = useState(false)
 
   useEffect(() => {
     load()
@@ -33,6 +57,12 @@ export default function App() {
   // Skipped while renaming a terminal or while the confirm dialog owns the keyboard.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl+Shift+E toggles the file explorer (VS Code's explorer shortcut).
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault(); e.stopImmediatePropagation()
+        useApp.getState().toggleExplorer()
+        return
+      }
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
       const key = e.key.toLowerCase()
       const isDigit = key.length === 1 && key >= '1' && key <= '9'
@@ -42,7 +72,7 @@ export default function App() {
       if (ae instanceof HTMLInputElement && ae.classList.contains('tname-input')) return
 
       const st = useApp.getState()
-      if (st.closeRequest || st.historyFor || st.lightbox) return   // a modal owns the keyboard while open
+      if (st.closeRequest || st.historyFor || st.assetsFor || st.lightbox) return   // a modal owns the keyboard while open
 
       // Visible terminals of the selected project, in grid order.
       const proj = st.projects.find(p => p.id === st.selectedProjectId)
@@ -95,6 +125,23 @@ export default function App() {
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
   }
+  // Drag the explorer's left edge: width = distance from cursor to the body's right edge.
+  const startExplorerResize = (e: React.PointerEvent) => {
+    const body = bodyRef.current
+    if (!body) return
+    e.preventDefault()
+    setFxDragging(true)
+    const rect = body.getBoundingClientRect()
+    const onMove = (ev: PointerEvent) => setExplorerWidth(rect.right - ev.clientX, false)
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setFxDragging(false)
+      useApp.getState().persist()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
   if (!loaded) return <div style={{ background: oceanic.bgBase, height: '100vh' }} />
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: oceanic.bgBase }}>
@@ -123,6 +170,21 @@ export default function App() {
           />
         )}
         <div style={{ flex: 1, minWidth: 0 }}><TerminalGrid /></div>
+        {explorerOpen && (
+          <>
+            <div
+              className={`sidebar-resizer${fxDragging ? ' active' : ''}`}
+              onPointerDown={startExplorerResize}
+              onDoubleClick={() => setExplorerWidth(DEFAULT_EXPLORER_WIDTH)}
+              role="separator"
+              aria-orientation="vertical"
+              title="Drag to resize · double-click to reset"
+            />
+            <div style={{ width: explorerWidth, flexShrink: 0, minWidth: 0, background: oceanic.bgSidebar, overflow: 'hidden' }}>
+              <MainExplorer />
+            </div>
+          </>
+        )}
       </div>
       {closeRequest && (
         <ConfirmDialog
@@ -136,6 +198,7 @@ export default function App() {
         />
       )}
       <HistoryDialog />
+      <AssetsPanel />
       <ImageLightbox />
     </div>
   )

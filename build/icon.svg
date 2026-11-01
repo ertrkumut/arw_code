@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- ARWCode — in memory of Arwen. A happy pup wearing a ">_" collar tag. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1C2029"/>
+      <stop offset="1" stop-color="#12151C"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6FD8CF"/>
+      <stop offset="1" stop-color="#4DB8AF"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+
+  <!-- floppy ears (behind the head) -->
+  <path d="M88 76 C58 72 34 108 40 154 C43 174 64 178 74 160 C82 144 86 124 98 100 Z" fill="#2F7F79"/>
+  <path d="M168 76 C198 72 222 108 216 154 C213 174 192 178 182 160 C174 144 170 124 158 100 Z" fill="#2F7F79"/>
+
+  <!-- head -->
+  <ellipse cx="128" cy="122" rx="62" ry="60" fill="url(#fur)"/>
+  <!-- muzzle -->
+  <ellipse cx="128" cy="150" rx="36" ry="27" fill="#BFF1EC"/>
+
+  <!-- happy closed eyes -->
+  <path d="M90 116 Q101 102 112 116" fill="none" stroke="#12151C" stroke-width="7" stroke-linecap="round"/>
+  <path d="M144 116 Q155 102 166 116" fill="none" stroke="#12151C" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- nose + smile -->
+  <ellipse cx="128" cy="136" rx="13" ry="9" fill="#12151C"/>
+  <path d="M128 144 V151 M128 151 Q119 161 110 154 M128 151 Q137 161 146 154" fill="none" stroke="#12151C" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- tongue -->
+  <path d="M121 157 Q128 172 135 157 Z" fill="#F2789B"/>
+
+  <!-- collar + ">_" tag -->
+  <path d="M82 176 Q128 198 174 176" fill="none" stroke="#E7EAF3" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="128" cy="205" r="22" fill="#F2C57C" stroke="#12151C" stroke-width="3"/>
+  <path d="M116 197 L124 204 L116 211" fill="none" stroke="#12151C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M128 212 H140" stroke="#12151C" stroke-width="4" stroke-linecap="round"/>
+</svg>

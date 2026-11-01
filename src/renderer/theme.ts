@@ -1,20 +1,25 @@
+/**
+ * UI color tokens for inline styles. Values are CSS variable references, so they follow
+ * the active theme (themes.ts sets the variables on :root). Use the theme's raw hex
+ * values (themes.ts) where a real color is required, e.g. xterm or Monaco.
+ */
 export const oceanic = {
-  bgBase: '#0E1016',
-  bgSidebar: '#13151D',
-  bgRaised: '#171A24',
-  bgCard: '#161922',
-  bgTerminal: '#0D0F15',
-  bgDeep: '#0D0F15',
-  border: '#21252F',
-  borderStrong: '#2C313F',
-  textPrimary: '#E7EAF3',
-  textSecondary: '#A6ADC0',
-  textMuted: '#69708A',
-  textFaint: '#474E63',
-  accent: '#5BC9C0',
-  accentDim: '#3C8F89',
-  accentGlow: 'rgba(91,201,192,0.30)',
-  selection: 'rgba(91,201,192,0.22)',
+  bgBase: 'var(--bg-base)',
+  bgSidebar: 'var(--bg-sidebar)',
+  bgRaised: 'var(--bg-raised)',
+  bgCard: 'var(--bg-card)',
+  bgTerminal: 'var(--bg-terminal)',
+  bgDeep: 'var(--bg-terminal)',
+  border: 'var(--border)',
+  borderStrong: 'var(--border-strong)',
+  textPrimary: 'var(--text-primary)',
+  textSecondary: 'var(--text-secondary)',
+  textMuted: 'var(--text-muted)',
+  textFaint: 'var(--text-faint)',
+  accent: 'var(--accent)',
+  accentDim: 'var(--accent-dim)',
+  accentGlow: 'var(--accent-glow)',
+  selection: 'var(--accent-soft)',
   status: {
     working: '#7FD88F',
     'needs-you': '#F2B45C',

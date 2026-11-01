@@ -1,10 +1,16 @@
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { oceanic } from '../theme'
+import { useIde } from '../store/ideStore'
+import { getTheme, type TerminalPalette } from '../themes'
 import { useApp } from '../store/appStore'
 import type { AgentId } from '@shared/agents'
 import '@xterm/xterm/css/xterm.css'
+
+function xtermTheme(t: TerminalPalette) {
+  const { selection, ...rest } = t
+  return { ...rest, cursorAccent: t.background, selectionBackground: selection }
+}
 
 export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
   const elRef = useRef<HTMLDivElement>(null)
@@ -14,22 +20,15 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
       fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
       fontSize: 13, lineHeight: 1.35, fontWeight: 400, fontWeightBold: 600,
       cursorBlink: true,
-      theme: {
-        background: oceanic.bgTerminal,
-        foreground: '#C8CEDE',
-        cursor: oceanic.accent,
-        cursorAccent: oceanic.bgTerminal,
-        selectionBackground: oceanic.selection,
-        black: oceanic.ansi.black, red: oceanic.ansi.red, green: oceanic.ansi.green, yellow: oceanic.ansi.yellow,
-        blue: oceanic.ansi.blue, magenta: oceanic.ansi.magenta, cyan: oceanic.ansi.cyan, white: oceanic.ansi.white,
-        brightBlack: oceanic.ansi.brightBlack, brightRed: oceanic.ansi.brightRed, brightGreen: oceanic.ansi.brightGreen,
-        brightYellow: oceanic.ansi.brightYellow, brightBlue: oceanic.ansi.brightBlue, brightMagenta: oceanic.ansi.brightMagenta,
-        brightCyan: oceanic.ansi.brightCyan, brightWhite: oceanic.ansi.brightWhite
-      }
+      theme: xtermTheme(getTheme(useIde.getState().themeId).terminal)
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(elRef.current!)
+    // Follow theme switches live.
+    const offTheme = useIde.subscribe((st, prev) => {
+      if (st.themeId !== prev.themeId) term.options.theme = xtermTheme(getTheme(st.themeId).terminal)
+    })
 
     let disposed = false
 
@@ -90,6 +89,13 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
         window.arw.input(id, '\n')
         return false
       }
+      // Ctrl+I opens the panel of images used in this terminal's session. (xterm would
+      // otherwise send it as a Tab — the Tab key itself arrives as key 'tab', unaffected.)
+      if (mod && key === 'i' && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        useApp.getState().openAssets(id, cwd)
+        return false
+      }
       if (mod && key === 'c' && term.hasSelection()) {
         window.arw.clipboardWrite(term.getSelection())
         return false
@@ -119,7 +125,12 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
       }
     })
 
-    term.onData((d) => window.arw.input(id, d))
+    term.onData((d) => {
+      window.arw.input(id, d)
+      // Enter sent the prompt, and its images with it — empty the thumbnail strip.
+      // (A bracketed paste can carry \r too; that's text arriving, not a submit.)
+      if (d.includes('\r') && !d.startsWith('\x1b[200~')) useApp.getState().clearPendingImages(id)
+    })
     // Claude Code sets the window title to a summary of the current conversation
     // (and updates it on /resume). Use it as the pane name until the user renames it.
     if ((agent ?? 'claude') === 'claude') {
@@ -156,6 +167,7 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
       if (raf) cancelAnimationFrame(raf)
       offData()
       unsubFocus()
+      offTheme()
       ro.disconnect()
       term.dispose()
     }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeProjectDir, sessionTitle, listSessions, deleteSession } from '@main/claudeHistory'
+import { claudeProjectDir, sessionTitle, listSessions, deleteSession, transcriptImages } from '@main/claudeHistory'
 
 const A = '11111111-2222-3333-4444-555555555555'
 const B = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -62,5 +62,28 @@ describe('listSessions / deleteSession', () => {
 
   it('refuses ids that are not uuids (no path traversal)', async () => {
     await expect(deleteSession(proj, '..\\..\\x', home)).rejects.toThrow('invalid session id')
+  })
+})
+
+describe('transcriptImages', () => {
+  const img = (data: string) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } })
+  const user = (content: unknown[]) => JSON.stringify({ type: 'user', message: { role: 'user', content } })
+
+  it('returns images the user sent, oldest first, as data URLs', () => {
+    const text = [
+      user([{ type: 'text', text: '[Image #1]' }, img('AAA')]),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } }),
+      user([img('BBB')])
+    ].join('\n')
+    expect(transcriptImages(text)).toEqual(['data:image/png;base64,AAA', 'data:image/png;base64,BBB'])
+  })
+
+  it('skips images nested in tool results and malformed lines', () => {
+    const text = [
+      user([{ type: 'tool_result', content: [img('TOOL')] }]),
+      '{"type":"user","type":"image" truncated',
+      user([{ type: 'image', source: { type: 'base64', media_type: 'text/html', data: 'X' } }])
+    ].join('\n')
+    expect(transcriptImages(text)).toEqual([])
   })
 })
