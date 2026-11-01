@@ -6,6 +6,13 @@ export const IPC = {
   ptyInput: 'pty:input',
   ptyResize: 'pty:resize',
   ptyKill: 'pty:kill',
+  chatOpen: 'chat:open',      // renderer -> main (invoke): register a Claude chat pane, returns { sessionId, transcript }
+  chatSend: 'chat:send',      // renderer -> main: send a prompt
+  chatInterrupt: 'chat:interrupt', // renderer -> main: stop the current turn
+  chatReset: 'chat:reset',    // renderer -> main (invoke): new conversation (/clear)
+  chatSuspend: 'chat:suspend', // renderer -> main (invoke): pause the headless process before terminal mode
+  chatReturn: 'chat:return',   // renderer -> main (invoke): back to chat; returns the fresh transcript
+  chatEvent: 'chat:event',    // main -> renderer: { id, event } one Claude stream-json event
   ptyData: 'pty:data',        // main -> renderer
   ptyExit: 'pty:exit',        // main -> renderer
   ptyError: 'pty:error',      // main -> renderer
@@ -23,6 +30,7 @@ export const IPC = {
   clipboardReadImage: 'clipboard:readImage', // renderer -> main (invoke): clipboard image as a PNG data URL, or null
   clipboardWriteImage: 'clipboard:writeImage', // renderer -> main (invoke): put an image data URL on the clipboard
   openPath: 'shell:openPath',
+  openExternal: 'shell:openExternal',       // renderer -> main: open an http(s) link in the browser
   historyList: 'history:list',             // renderer -> main (invoke): Claude sessions saved for a folder
   historyDelete: 'history:delete',         // renderer -> main (invoke): delete one saved Claude session
   historyImages: 'history:images',         // renderer -> main (invoke): images sent in a terminal's Claude session

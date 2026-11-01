@@ -19,6 +19,8 @@ export interface Terminal {
   /** True while the name follows the title the CLI sets; false once the user renames it.
    *  Undefined (older terminals) = auto only if still on the default "terminal N". Persisted. */
   autoName?: boolean
+  /** Claude chat panes: the conversation's session id, so it reopens where it left off. Persisted. */
+  sessionId?: string
 }
 
 export interface Group {
@@ -60,5 +62,7 @@ export interface PersistedState {
 /** Event posted by a Claude hook to the Status Bridge. */
 export interface HookEvent {
   id: string            // ARW_TERMINAL_ID
-  state: TermState
+  state?: TermState
+  /** Claude session the terminal is on */
+  sessionId?: string
 }

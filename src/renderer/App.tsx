@@ -45,7 +45,8 @@ export default function App() {
 
   useEffect(() => {
     load()
-    window.arw.onStatus(({ id, state }) => setStatus(id, state as TermState))
+    // A chat pane's terminal mode reports as "<id>:tui" — it's the same pane.
+    window.arw.onStatus(({ id, state }) => setStatus(id.replace(/:tui$/, ''), state as TermState))
     // Torn-off windows talk back: returned to the grid, or closed (shell killed).
     window.arw.onReattached(({ id }) => useApp.getState().reattachTerminal(id))
     window.arw.onClosed(({ id }) => useApp.getState().dropTerminal(id))

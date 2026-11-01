@@ -1,6 +1,7 @@
 import { app, Menu } from 'electron'
 import { registerIpc } from './ipc'
 import { StatusBridge } from './statusBridge'
+import { noteSession } from './chatManager'
 import { IPC } from '@shared/constants'
 import { installHooks } from './hookInstaller'
 import { WindowManager } from './windows'
@@ -35,7 +36,10 @@ app.on('second-instance', () => {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   try { installHooks() } catch (e) { console.error('[arw] installHooks failed:', e) }
-  const bridge = new StatusBridge((e) => wm.broadcast(IPC.statusUpdate, e))
+  const bridge = new StatusBridge((e) => {
+    if (e.sessionId) noteSession(e.id, e.sessionId)
+    if (e.state) wm.broadcast(IPC.statusUpdate, e)
+  })
   await bridge.start()
   const mgr = registerIpc(wm, () => bridge.url())
   app.on('before-quit', () => { mgr.killAll(); bridge.stop() })

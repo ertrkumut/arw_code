@@ -6,8 +6,8 @@ import type { DirEntry, TextFile } from '../main/fileTree'
 import type { IdePatch } from '../main/ideState'
 
 const api = {
-  spawn: (id: string, cwd: string, cols: number, rows: number, agent?: AgentId, resume?: string) =>
-    ipcRenderer.send(IPC.ptySpawn, { id, cwd, cols, rows, agent, resume }),
+  spawn: (id: string, cwd: string, cols: number, rows: number, agent?: AgentId, resume?: string, sessionId?: string) =>
+    ipcRenderer.send(IPC.ptySpawn, { id, cwd, cols, rows, agent, resume, sessionId }),
   input: (id: string, data: string) => ipcRenderer.send(IPC.ptyInput, { id, data }),
   resize: (id: string, cols: number, rows: number) =>
     ipcRenderer.send(IPC.ptyResize, { id, cols, rows }),
@@ -55,6 +55,7 @@ const api = {
   clipboardReadImage: (): Promise<string | null> => ipcRenderer.invoke(IPC.clipboardReadImage),
   clipboardWriteImage: (dataUrl: string): Promise<void> => ipcRenderer.invoke(IPC.clipboardWriteImage, dataUrl),
   openInExplorer: (path: string) => ipcRenderer.send(IPC.openPath, path),
+  openExternal: (url: string) => ipcRenderer.send(IPC.openExternal, url),
   revealInExplorer: (path: string) => ipcRenderer.send(IPC.revealPath, path),
   fs: {
     readDir: (dir: string): Promise<DirEntry[]> => ipcRenderer.invoke(IPC.fsReadDir, dir),
@@ -96,6 +97,21 @@ const api = {
       const h = (_e: IpcRendererEvent, p: { code: number | null; stderr: string }) => cb(p)
       ipcRenderer.on(IPC.debugExit, h)
       return () => ipcRenderer.removeListener(IPC.debugExit, h)
+    },
+  },
+  chat: {
+    open: (id: string, cwd: string, resume?: string): Promise<{ sessionId: string; transcript: string }> =>
+      ipcRenderer.invoke(IPC.chatOpen, { id, cwd, resume }),
+    send: (id: string, content: unknown[], echo: { text: string; images: string[] }) =>
+      ipcRenderer.send(IPC.chatSend, { id, content, echo }),
+    interrupt: (id: string) => ipcRenderer.send(IPC.chatInterrupt, id),
+    reset: (id: string): Promise<{ sessionId: string } | null> => ipcRenderer.invoke(IPC.chatReset, id),
+    suspend: (id: string): Promise<{ sessionId: string; resume: boolean } | null> => ipcRenderer.invoke(IPC.chatSuspend, id),
+    returnFromTerminal: (id: string): Promise<{ sessionId: string; transcript: string } | null> => ipcRenderer.invoke(IPC.chatReturn, id),
+    onEvent: (cb: (p: { id: string; event: any }) => void) => {
+      const h = (_e: IpcRendererEvent, p: { id: string; event: any }) => cb(p)
+      ipcRenderer.on(IPC.chatEvent, h)
+      return () => ipcRenderer.removeListener(IPC.chatEvent, h)
     },
   },
   history: {

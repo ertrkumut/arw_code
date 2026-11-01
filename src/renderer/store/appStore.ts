@@ -75,6 +75,10 @@ interface AppState {
   /** Follow the CLI's window title, unless the user has named this terminal. */
   autoNameTerminal: (termId: string, rawTitle: string) => void
   setTerminalColor: (projectId: string, termId: string, color: string | null) => void
+  /** A chat pane's Claude session (new conversation, or resumed id changed). */
+  setTerminalSession: (termId: string, sessionId: string) => void
+  /** Name a chat pane after its first prompt, unless the user renamed it. */
+  namePaneFromPrompt: (termId: string, prompt: string) => void
   moveTerminal: (projectId: string, termId: string, toIndex: number) => void
   setMaximized: (termId: string | null) => void
   setFocusedTerm: (termId: string | null) => void
@@ -283,6 +287,25 @@ export const useApp = create<AppState>((set, get) => ({
     set((st) => ({ projects: st.projects.map(p => p.id === projectId
       ? { ...p, terminals: p.terminals.map(t => t.id === termId
           ? { ...t, color: color ?? undefined } : t) } : p) }))
+    get().persist()
+  },
+  setTerminalSession: (termId, sessionId) => {
+    const t = get().projects.flatMap(p => p.terminals).find(x => x.id === termId)
+    if (!t || t.sessionId === sessionId) return
+    set((st) => ({ projects: st.projects.map(p => ({
+      ...p, terminals: p.terminals.map(x => x.id === termId ? { ...x, sessionId } : x)
+    })) }))
+    get().persist()
+  },
+  namePaneFromPrompt: (termId, prompt) => {
+    const t = get().projects.flatMap(p => p.terminals).find(x => x.id === termId)
+    if (!t || !(t.autoName ?? DEFAULT_NAME_RE.test(t.name)) || !DEFAULT_NAME_RE.test(t.name)) return
+    const one = prompt.replace(/\s+/g, ' ').trim()
+    if (!one) return
+    const name = one.length > 40 ? one.slice(0, 39) + '…' : one
+    set((st) => ({ projects: st.projects.map(p => ({
+      ...p, terminals: p.terminals.map(x => x.id === termId ? { ...x, name, autoName: true } : x)
+    })) }))
     get().persist()
   },
   moveTerminal: (projectId, termId, toIndex) => {

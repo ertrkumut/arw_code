@@ -1,5 +1,6 @@
 export const ARW_MARKER = 'arw-hook.cjs'
-const HOOK_EVENTS = ['PreToolUse', 'UserPromptSubmit', 'Notification', 'Stop'] as const
+// SessionStart reports the session id (new, resumed via /resume, or after /clear).
+const HOOK_EVENTS = ['SessionStart', 'PreToolUse', 'UserPromptSubmit', 'Notification', 'Stop'] as const
 
 interface HookCmd { type: 'command'; command: string }
 interface HookGroup { matcher?: string; hooks: HookCmd[] }

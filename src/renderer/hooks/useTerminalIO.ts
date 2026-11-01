@@ -12,7 +12,8 @@ function xtermTheme(t: TerminalPalette) {
   return { ...rest, cursorAccent: t.background, selectionBackground: selection }
 }
 
-export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
+/** `session` overrides how a Claude terminal starts (used by a chat pane's terminal mode). */
+export function useTerminalIO(id: string, cwd: string, agent?: AgentId, session?: { resume?: string; sessionId?: string }) {
   const elRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -105,7 +106,8 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId) {
 
     // A terminal opened from the history dialog continues that Claude session (one-shot:
     // later re-mounts hit the already-running pty, and a relaunch starts fresh).
-    window.arw.spawn(id, cwd, term.cols, term.rows, agent, useApp.getState().takeResume(id))
+    if (session) window.arw.spawn(id, cwd, term.cols, term.rows, agent, session.resume, session.sessionId)
+    else window.arw.spawn(id, cwd, term.cols, term.rows, agent, useApp.getState().takeResume(id))
 
     // Auto-focus a freshly created terminal so the user can start typing without
     // clicking into the pane. Only fires for the terminal addTerminal just flagged

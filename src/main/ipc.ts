@@ -9,6 +9,8 @@ import { getIdeState, patchIdeState, openTabPatch, type IdePatch } from './ideSt
 import { DapSession, findMonoDbg } from './debugAdapter'
 import { BrowserWindow } from 'electron'
 import type { WindowManager } from './windows'
+import { ChatManager, readTranscript, takeReportedSession, type ContentBlock } from './chatManager'
+import { app } from 'electron'
 
 export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   const send = (ch: string, ...args: unknown[]) => wm.broadcast(ch, ...args)
@@ -20,13 +22,33 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
     },
     (id, message) => send(IPC.ptyError, { id, message })
   )
-  wm.onKill = (id) => mgr.kill(id)   // a torn-off window closing kills its shell
+  // Claude panes are chats: a headless Claude process per pane (see chatManager.ts).
+  const chat = new ChatManager((id, event) => send(IPC.chatEvent, { id, event }), eventUrl)
+  app.on('before-quit', () => chat.killAll())
+  ipcMain.handle(IPC.chatOpen, async (_e, p: { id: string; cwd: string; resume?: string }) => {
+    const { sessionId } = chat.open(p.id, p.cwd, p.resume)
+    // Always read: a torn-off window re-opening a running chat needs the history too.
+    return { sessionId, transcript: await readTranscript(p.cwd, sessionId) }
+  })
+  ipcMain.on(IPC.chatSend, (_e, p: { id: string; content: ContentBlock[]; echo: { text: string; images: string[] } }) =>
+    chat.send(p.id, p.content, p.echo))
+  ipcMain.on(IPC.chatInterrupt, (_e, id: string) => chat.interrupt(id))
+  ipcMain.handle(IPC.chatReset, (_e, id: string) => chat.reset(id))
+  ipcMain.handle(IPC.chatSuspend, (_e, id: string) => chat.suspend(id))
+  ipcMain.handle(IPC.chatReturn, async (_e, id: string) => {
+    mgr.kill(`${id}:tui`)                       // the terminal-mode pty of this pane
+    const r = chat.resumeAfterTerminal(id, takeReportedSession(`${id}:tui`))
+    return r ? { sessionId: r.sessionId, transcript: await readTranscript(r.cwd, r.sessionId) } : null
+  })
 
-  ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows, agent, resume }) =>
-    mgr.spawn({ id, cwd, cols, rows, agent, resume, eventUrl: eventUrl() }))
+  wm.onKill = (id) => { mgr.kill(id); mgr.kill(`${id}:tui`); chat.kill(id) }   // a torn-off window closing kills its shell / chat
+
+  ipcMain.on(IPC.ptySpawn, (_e, { id, cwd, cols, rows, agent, resume, sessionId }) =>
+    // "<pane>:tui" is a chat pane's terminal mode: its shell ends when claude does.
+    mgr.spawn({ id, cwd, cols, rows, agent, resume, sessionId, exitWithAgent: String(id).endsWith(':tui'), eventUrl: eventUrl() }))
   ipcMain.on(IPC.ptyInput, (_e, { id, data }) => mgr.write(id, data))
   ipcMain.on(IPC.ptyResize, (_e, { id, cols, rows }) => mgr.resize(id, cols, rows))
-  ipcMain.on(IPC.ptyKill, (_e, { id }) => mgr.kill(id))
+  ipcMain.on(IPC.ptyKill, (_e, { id }) => { mgr.kill(id); mgr.kill(`${id}:tui`); chat.kill(id) })
 
   ipcMain.on(IPC.terminalTearOff, (_e, p) => wm.tearOff(p))
   ipcMain.on(IPC.terminalReattach, (_e, p) => wm.reattach(p))
@@ -53,13 +75,14 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
 
   // Open a project folder in the OS file manager (Explorer/Finder/etc).
   ipcMain.on(IPC.openPath, (_e, p: string) => { void shell.openPath(p) })
+  ipcMain.on(IPC.openExternal, (_e, url: string) => { if (/^https?:\/\//i.test(url)) void shell.openExternal(url) })
 
   // Claude Code conversation history for a project folder (~/.claude/projects/<folder>).
   ipcMain.handle(IPC.historyList, (_e, projectPath: string) => listSessions(projectPath))
   ipcMain.handle(IPC.historyDelete, (_e, p: { projectPath: string; id: string }) =>
     deleteSession(p.projectPath, p.id))
   ipcMain.handle(IPC.historyImages, (_e, termId: string) => {
-    const s = mgr.claudeSession(termId)
+    const s = mgr.claudeSession(termId) ?? chat.session(termId)
     return s ? sessionImages(s.cwd, s.id) : []
   })
 

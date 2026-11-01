@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { IPC } from '@shared/constants'
@@ -15,6 +15,19 @@ const baseWindowOpts = {
   backgroundColor: '#0E1016',
   titleBarStyle: 'hidden' as const,
   titleBarOverlay: { color: '#13151D', symbolColor: '#A6ADC0', height: 40 }
+}
+
+/** Windows only ever show ARWCode itself: a clicked link opens in the browser, never in-app. */
+function lockNavigation(win: BrowserWindow) {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (e, url) => {
+    const dev = process.env.ELECTRON_RENDERER_URL
+    if (dev && url.startsWith(dev)) return
+    e.preventDefault()
+  })
 }
 
 /**
@@ -37,6 +50,7 @@ export class WindowManager {
       webPreferences: { preload: PRELOAD() },
       ...baseWindowOpts
     })
+    lockNavigation(win)
     if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
     else win.loadFile(RENDERER_FILE())
     win.on('closed', () => { this.main = null })
@@ -72,6 +86,7 @@ export class WindowManager {
       + (p.color ? `&color=${encodeURIComponent(p.color)}` : '')
       + (p.agent ? `&agent=${encodeURIComponent(p.agent)}` : '')
       + `&cwd=${encodeURIComponent(p.cwd)}`
+    lockNavigation(win)
     if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + search)
     else win.loadFile(RENDERER_FILE(), { search })
 
@@ -98,6 +113,7 @@ export class WindowManager {
       ...baseWindowOpts
     })
     const search = `?ide=${encodeURIComponent(p.projectId)}&name=${encodeURIComponent(p.name)}&path=${encodeURIComponent(p.path)}`
+    lockNavigation(win)
     if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + search)
     else win.loadFile(RENDERER_FILE(), { search })
     this.ides.set(p.projectId, win)

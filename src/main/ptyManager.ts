@@ -1,3 +1,4 @@
+import { claudeEnv } from './cleanEnv'
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
 import { ENV_TERMINAL_ID, ENV_EVENT_URL } from '@shared/constants'
 import { resolveAgent } from '@shared/agents'
@@ -11,6 +12,10 @@ export interface SpawnOpts {
   agent?: string
   /** Claude session id to continue (`--resume <id>`). Ignored for other agents. */
   resume?: string
+  /** Claude: start a *new* session with this exact id (`--session-id`). Ignored when resuming. */
+  sessionId?: string
+  /** Close the shell when the agent exits (a chat pane's terminal mode returns to the chat then). */
+  exitWithAgent?: boolean
 }
 
 type DataCb = (id: string, data: string) => void
@@ -35,7 +40,7 @@ export class PtyManager {
     try {
       p = pty.spawn(shell, [], {
         name: 'xterm-color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows,
-        env: { ...process.env, [ENV_TERMINAL_ID]: opts.id, [ENV_EVENT_URL]: opts.eventUrl }
+        env: claudeEnv(process.env, { [ENV_TERMINAL_ID]: opts.id, [ENV_EVENT_URL]: opts.eventUrl }) as { [key: string]: string }
       })
     } catch (err) {
       this.onError?.(opts.id, String(err))
@@ -56,11 +61,12 @@ export class PtyManager {
       // transcript — and the images sent in it — can be found later. Only a
       // well-formed uuid is ever appended: this string is typed into a shell.
       const resume = opts.resume && SESSION_ID_RE.test(opts.resume) ? opts.resume : null
-      const sid = resume ?? randomUUID()
+      const pinned = opts.sessionId && SESSION_ID_RE.test(opts.sessionId) ? opts.sessionId : null
+      const sid = resume ?? pinned ?? randomUUID()
       this.sessions.set(opts.id, { id: sid, cwd: opts.cwd })
       args = resume ? ` --resume ${sid}` : ` --session-id ${sid}`
     }
-    p.write(def.command + args + '\r')
+    p.write(def.command + args + (opts.exitWithAgent ? exitAfterAgent() : '') + '\r')
   }
 
   /** The Claude session a terminal was launched with (undefined for other agents). */
@@ -68,6 +74,20 @@ export class PtyManager {
 
   write(id: string, data: string) { this.procs.get(id)?.write(data) }
   resize(id: string, cols: number, rows: number) { this.procs.get(id)?.resize(cols, rows) }
-  kill(id: string) { this.procs.get(id)?.kill(); this.procs.delete(id); this.sessions.delete(id) }
+  kill(id: string) {
+    // A pty whose process already ended can throw on kill (Windows ConPTY).
+    try { this.procs.get(id)?.kill() } catch { /* already gone */ }
+    this.procs.delete(id); this.sessions.delete(id)
+  }
   killAll() { for (const p of this.procs.values()) p.kill(); this.procs.clear(); this.sessions.clear() }
+}
+
+/**
+ * Printed when the agent exits in a chat pane's terminal mode, so the renderer knows to go
+ * back to the chat even when the pty's own exit event doesn't arrive (ConPTY can lose it).
+ * The echoed command line splits the word in two, so only the real output matches.
+ */
+export const TUI_DONE_MARKER = '__ARW_TUI_DONE__'
+export function exitAfterAgent(platform = process.platform): string {
+  return platform === 'win32' ? "; echo ('__ARW_' + 'TUI_DONE__'); exit" : "; echo '__ARW_''TUI_DONE__'; exit"
 }

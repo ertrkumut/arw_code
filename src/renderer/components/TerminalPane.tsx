@@ -8,12 +8,80 @@ import { ColorSwatchPicker } from './ColorSwatchPicker'
 import { Dot } from './Dot'
 import { AgentBadge } from './AgentBadge'
 import { ImageStrip } from './ImageStrip'
+import { ChatView } from './chat/ChatView'
+import { useChat } from '../store/chatStore'
 import type { TermState } from '@shared/types'
 import type { AgentId } from '@shared/agents'
+
+/** Claude panes are chats; every other agent is a real terminal. */
+export const isChatAgent = (agent?: AgentId) => (agent ?? 'claude') === 'claude'
+
+/**
+ * Terminal mode of a chat pane: the real interactive `claude`, on the same conversation.
+ * Types `command` once Claude has started; returns to the chat when claude exits.
+ */
+function TuiBody({ termId, cwd, session }: { termId: string; cwd: string; session: { resume?: string; sessionId?: string; command?: string } }) {
+  const tuiId = `${termId}:tui`
+  const ref = useTerminalIO(tuiId, cwd, 'claude', session)
+  useEffect(() => {
+    // Type the command only once Claude's input prompt ("❯ …") is up. Never type blind: a
+    // startup dialog (folder trust, login) also shows "❯" but asks to confirm, and would
+    // take the keystrokes — wait until it's gone. Output settles for 300 ms before typing.
+    let typed = !session.command, timer = 0, seen = '', tail = '', done = false
+    const back = () => { if (!done) { done = true; void useChat.getState().exitTerminal(termId) } }
+    const offData = window.arw.onData(({ id, data }) => {
+      if (id !== tuiId) return
+      // The shell prints this once claude has exited (see ptyManager exitAfterAgent).
+      tail = (tail + data).slice(-400)          // the marker can arrive split across chunks
+      if (tail.includes('__ARW_TUI_DONE__')) return back()
+      if (typed) return
+      seen = (seen + data.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')).slice(-3000)
+      clearTimeout(timer)
+      const dialog = /Enter to confirm|Esc to cancel|trust this folder|Select (an )?option/i.test(seen.slice(-1500))
+      if (dialog || !/❯/.test(seen)) return
+      timer = window.setTimeout(() => {
+        if (typed) return
+        typed = true
+        window.arw.input(tuiId, session.command! + String.fromCharCode(13))
+      }, 300)
+    })
+    const offExit = window.arw.onExit(({ id }) => { if (id === tuiId) back() })
+    return () => { offData(); offExit(); clearTimeout(timer) }
+  }, [tuiId])
+  return <div ref={ref} style={{ flex: 1, minHeight: 0, padding: '4px 8px 6px', background: 'var(--bg-terminal)' }} />
+}
+
+function ChatBody({ projectId, termId, cwd }: { projectId: string; termId: string; cwd: string }) {
+  const project = useApp(s => s.projects.find(p => p.id === projectId))
+  const tui = useChat(s => s.terminal[termId])
+  // A pane opened from the history dialog continues that session; otherwise reopen this
+  // pane's own conversation from last time.
+  const [resume] = useState(() => useApp.getState().takeResume(termId)
+    ?? project?.terminals.find(t => t.id === termId)?.sessionId)
+  if (tui) return <TuiBody termId={termId} cwd={cwd} session={tui} />
+  return <ChatView termId={termId} cwd={cwd} resume={resume}
+    project={project ? { id: project.id, name: project.name, path: project.path } : null} />
+}
 
 function PaneBody({ termId, cwd, agent }: { termId: string; cwd: string; agent?: AgentId }) {
   const ref = useTerminalIO(termId, cwd, agent)
   return <div ref={ref} style={{ flex: 1, minHeight: 0, padding: '4px 8px 6px', background: 'var(--bg-terminal)' }} />
+}
+
+/** Chat ⇄ Terminal for a Claude pane (same conversation either way). */
+function ModeToggle({ termId }: { termId: string }) {
+  const inTerminal = useChat(s => !!s.terminal[termId])
+  const busy = useChat(s => !!s.chats[termId]?.busy)
+  return (
+    <span className={`pane-btn pane-mode${inTerminal ? ' on' : ''}`}
+      title={inTerminal ? 'Back to chat' : busy ? 'Wait for Claude to finish (or stop it) first' : 'Open this conversation in the Claude terminal (for /mcp, /config, …)'}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (inTerminal) void useChat.getState().exitTerminal(termId)
+        else if (!busy) void useChat.getState().enterTerminal(termId)
+      }}>{inTerminal ? 'Chat' : '›_'}</span>
+  )
 }
 
 export function TerminalPane({ projectId, termId, name, color, cwd, agent, focused, onFocus, maximized, onToggleMax, dndEnabled, paneStyle }:
@@ -94,6 +162,12 @@ export function TerminalPane({ projectId, termId, name, color, cwd, agent, focus
           <span className="pane-btn" title={maximized ? 'Restore' : 'Maximize'}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onToggleMax() }}>{maximized ? '❐' : '▢'}</span>
+          {isChatAgent(agent) && <ModeToggle termId={termId} />}
+          {isChatAgent(agent) && (
+            <span className="pane-btn" title="New conversation (/clear)"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); void useChat.getState().clear(termId) }}>✚</span>
+          )}
           <span className="pane-btn pane-x-btn" title="Close terminal"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); requestRemoveTerminal(projectId, termId) }}>✕</span>
@@ -121,8 +195,12 @@ export function TerminalPane({ projectId, termId, name, color, cwd, agent, focus
         </div>
       ) : (
         <>
-          <ImageStrip termId={termId} />
-          <PaneBody key={attempt} termId={termId} cwd={cwd} agent={agent} />
+          {isChatAgent(agent) ? <ChatBody projectId={projectId} termId={termId} cwd={cwd} /> : (
+            <>
+              <ImageStrip termId={termId} />
+              <PaneBody key={attempt} termId={termId} cwd={cwd} agent={agent} />
+            </>
+          )}
         </>
       )}
     </div>
