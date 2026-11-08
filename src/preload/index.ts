@@ -4,6 +4,9 @@ import type { AgentId } from '../shared/agents'
 import type { ClaudeSession } from '../main/claudeHistory'
 import type { DirEntry, TextFile } from '../main/fileTree'
 import type { IdePatch } from '../main/ideState'
+import type { AgentEdit } from '../shared/agentEdits'
+import type { IndexStatus } from '../main/codeIndex'
+import type { FindOptions, FindResult } from '../main/findInFiles'
 
 const api = {
   spawn: (id: string, cwd: string, cols: number, rows: number, agent?: AgentId, resume?: string, sessionId?: string) =>
@@ -52,6 +55,8 @@ const api = {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.pickFolder),
   clipboardRead: (): Promise<string> => ipcRenderer.invoke(IPC.clipboardRead),
   clipboardWrite: (text: string) => ipcRenderer.send(IPC.clipboardWrite, text),
+  /** 5-hour plan usage cached by the Claude status line (pct 0-100, reset epoch s, ts epoch ms). */
+  usageCache: (): Promise<{ pct: number; resetsAt: number; ts: number } | null> => ipcRenderer.invoke(IPC.usageCache),
   clipboardReadImage: (): Promise<string | null> => ipcRenderer.invoke(IPC.clipboardReadImage),
   clipboardWriteImage: (dataUrl: string): Promise<void> => ipcRenderer.invoke(IPC.clipboardWriteImage, dataUrl),
   openInExplorer: (path: string) => ipcRenderer.send(IPC.openPath, path),
@@ -80,8 +85,26 @@ const api = {
       return () => ipcRenderer.removeListener(IPC.ideChanged, h)
     },
     /** Open (or focus) the project's IDE window, optionally opening a file in it. */
-    open: (p: { projectId: string; name: string; path: string; file?: string }) => ipcRenderer.send(IPC.ideOpen, p),
+    open: (p: { projectId: string; name: string; path: string; file?: string; line?: number }) => ipcRenderer.send(IPC.ideOpen, p),
+    /** The main window asked this IDE window to show a line (e.g. clicked one of Claude's edits). */
+    onReveal: (cb: (p: { file: string; line: number }) => void) => {
+      const h = (_e: IpcRendererEvent, p: { file: string; line: number }) => cb(p)
+      ipcRenderer.on(IPC.ideReveal, h)
+      return () => ipcRenderer.removeListener(IPC.ideReveal, h)
+    },
+    takeReveal: (projectId: string): Promise<{ file: string; line: number } | null> => ipcRenderer.invoke(IPC.ideTakeReveal, projectId),
     setTitleBarColors: (c: { color: string; symbolColor: string; bg: string }) => ipcRenderer.send(IPC.setTitleBarColors, c),
+  },
+  /** C# code insight backed by the project index in main (see src/main/codeIndex.ts). */
+  code: {
+    query: <T = any>(root: string, op: string, args?: unknown): Promise<T> => ipcRenderer.invoke(IPC.codeQuery, { root, op, args }),
+    update: (root: string, path: string, text: string | null) => ipcRenderer.send(IPC.codeUpdate, { root, path, text }),
+    onEvent: (cb: (p: { root: string; ev: 'progress' | 'changed'; status: IndexStatus }) => void) => {
+      const h = (_e: IpcRendererEvent, p: { root: string; ev: 'progress' | 'changed'; status: IndexStatus }) => cb(p)
+      ipcRenderer.on(IPC.codeEvent, h)
+      return () => ipcRenderer.removeListener(IPC.codeEvent, h)
+    },
+    findInFiles: (root: string, options: FindOptions): Promise<FindResult> => ipcRenderer.invoke(IPC.findInFiles, { root, options }),
   },
   debug: {
     /** Spawn the adapter and send `initialize`; resolves with its capabilities. */
@@ -106,12 +129,26 @@ const api = {
       ipcRenderer.send(IPC.chatSend, { id, content, echo }),
     interrupt: (id: string) => ipcRenderer.send(IPC.chatInterrupt, id),
     reset: (id: string): Promise<{ sessionId: string } | null> => ipcRenderer.invoke(IPC.chatReset, id),
+    control: (id: string, subtype: string, extra?: Record<string, unknown>): Promise<any> =>
+      ipcRenderer.invoke(IPC.chatControl, { id, subtype, extra }),
+    switchSession: (id: string, sessionId: string): Promise<{ sessionId: string; transcript: string } | null> =>
+      ipcRenderer.invoke(IPC.chatSwitch, { id, sessionId }),
     suspend: (id: string): Promise<{ sessionId: string; resume: boolean } | null> => ipcRenderer.invoke(IPC.chatSuspend, id),
     returnFromTerminal: (id: string): Promise<{ sessionId: string; transcript: string } | null> => ipcRenderer.invoke(IPC.chatReturn, id),
     onEvent: (cb: (p: { id: string; event: any }) => void) => {
       const h = (_e: IpcRendererEvent, p: { id: string; event: any }) => cb(p)
       ipcRenderer.on(IPC.chatEvent, h)
       return () => ipcRenderer.removeListener(IPC.chatEvent, h)
+    },
+  },
+  /** Claude's unreviewed file edits (see shared/agentEdits.ts). */
+  edits: {
+    list: (): Promise<AgentEdit[]> => ipcRenderer.invoke(IPC.editsList),
+    set: (path: string, baseline: string | null) => ipcRenderer.send(IPC.editsSet, { path, baseline }),
+    onChanged: (cb: (p: { path: string; edit: AgentEdit | null }) => void) => {
+      const h = (_e: IpcRendererEvent, p: { path: string; edit: AgentEdit | null }) => cb(p)
+      ipcRenderer.on(IPC.editsChanged, h)
+      return () => ipcRenderer.removeListener(IPC.editsChanged, h)
     },
   },
   history: {

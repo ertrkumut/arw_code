@@ -1,5 +1,8 @@
 import { ipcMain, dialog, clipboard, shell, nativeImage } from 'electron'
 import { existsSync } from 'fs'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+import { homedir } from 'os'
 import { IPC } from '@shared/constants'
 import { PtyManager } from './ptyManager'
 import { loadState, saveStateDebounced } from './store'
@@ -11,6 +14,9 @@ import { BrowserWindow } from 'electron'
 import type { WindowManager } from './windows'
 import { ChatManager, readTranscript, takeReportedSession, type ContentBlock } from './chatManager'
 import { app } from 'electron'
+import { AgentEditTracker } from './agentEdits'
+import { getIndex } from './codeIndex'
+import { findInFiles, type FindOptions } from './findInFiles'
 
 export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   const send = (ch: string, ...args: unknown[]) => wm.broadcast(ch, ...args)
@@ -23,7 +29,11 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
     (id, message) => send(IPC.ptyError, { id, message })
   )
   // Claude panes are chats: a headless Claude process per pane (see chatManager.ts).
-  const chat = new ChatManager((id, event) => send(IPC.chatEvent, { id, event }), eventUrl)
+  // Claude's file edits, kept for review in the IDE (see agentEdits.ts).
+  const edits = new AgentEditTracker((path, edit) => send(IPC.editsChanged, { path, edit }))
+  ipcMain.handle(IPC.editsList, () => edits.list())
+  ipcMain.on(IPC.editsSet, (_e, p: { path: string; baseline: string | null }) => edits.set(p.path, p.baseline))
+  const chat = new ChatManager((id, event) => { send(IPC.chatEvent, { id, event }); edits.noteEvent(event) }, eventUrl)
   app.on('before-quit', () => chat.killAll())
   ipcMain.handle(IPC.chatOpen, async (_e, p: { id: string; cwd: string; resume?: string }) => {
     const { sessionId } = chat.open(p.id, p.cwd, p.resume)
@@ -34,6 +44,12 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
     chat.send(p.id, p.content, p.echo))
   ipcMain.on(IPC.chatInterrupt, (_e, id: string) => chat.interrupt(id))
   ipcMain.handle(IPC.chatReset, (_e, id: string) => chat.reset(id))
+  ipcMain.handle(IPC.chatControl, (_e, p: { id: string; subtype: string; extra?: Record<string, unknown> }) =>
+    chat.control(p.id, p.subtype, p.extra ?? {}))
+  ipcMain.handle(IPC.chatSwitch, async (_e, p: { id: string; sessionId: string }) => {
+    const r = chat.switchSession(p.id, p.sessionId)
+    return r ? { sessionId: r.sessionId, transcript: await readTranscript(r.cwd, r.sessionId) } : null
+  })
   ipcMain.handle(IPC.chatSuspend, (_e, id: string) => chat.suspend(id))
   ipcMain.handle(IPC.chatReturn, async (_e, id: string) => {
     mgr.kill(`${id}:tui`)                       // the terminal-mode pty of this pane
@@ -65,6 +81,16 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   // the file:// renderer (non-secure context), so route copy/paste through Electron.
   ipcMain.handle(IPC.clipboardRead, () => clipboard.readText())
   ipcMain.on(IPC.clipboardWrite, (_e, text: string) => clipboard.writeText(text))
+  // Plan usage the user's Claude status line caches (~/.claude/statusbar_usage_cache.json:
+  // { ts, pct, reset_ts }). Lets the chat bar show the 5-hour window before Claude replies.
+  ipcMain.handle(IPC.usageCache, async () => {
+    try {
+      const c = JSON.parse(await readFile(join(homedir(), '.claude', 'statusbar_usage_cache.json'), 'utf8'))
+      if (typeof c?.pct !== 'number') return null
+      return { pct: c.pct as number, resetsAt: Number(c.reset_ts) || 0, ts: Math.round(Number(c.ts) * 1000) || 0 }
+    } catch { return null }
+  })
+
   ipcMain.handle(IPC.clipboardReadImage, () => {
     const img = clipboard.readImage()
     return img.isEmpty() ? null : img.toDataURL()
@@ -110,9 +136,20 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   ipcMain.handle(IPC.ideLoad, () => getIdeState())
   ipcMain.on(IPC.idePatch, (e, patch: IdePatch) => applyPatch(patch, e.sender))
   // Main window double-clicked a file: add it to the project's tabs, then open/focus its IDE window.
-  ipcMain.on(IPC.ideOpen, (_e, p: { projectId: string; name: string; path: string; file?: string }) => {
+  // A line to jump to waits here until a just-opened IDE window asks for it.
+  const pendingReveal = new Map<string, { file: string; line: number }>()
+  ipcMain.on(IPC.ideOpen, (_e, p: { projectId: string; name: string; path: string; file?: string; line?: number }) => {
     if (p.file) applyPatch(openTabPatch(getIdeState(), p.projectId, p.file, fileKey))
-    wm.openIde({ projectId: p.projectId, name: p.name, path: p.path })
+    const reveal = p.file && p.line ? { file: p.file, line: p.line } : null
+    const created = wm.openIde({ projectId: p.projectId, name: p.name, path: p.path })
+    if (!reveal) return
+    if (created) pendingReveal.set(p.projectId, reveal)
+    else wm.ideWindow(p.projectId)?.webContents.send(IPC.ideReveal, reveal)
+  })
+  ipcMain.handle(IPC.ideTakeReveal, (_e, projectId: string) => {
+    const r = pendingReveal.get(projectId)
+    pendingReveal.delete(projectId)
+    return r ?? null
   })
   ipcMain.on(IPC.setTitleBarColors, (e, c: { color: string; symbolColor: string; bg: string }) => {
     const win = BrowserWindow.fromWebContents(e.sender)
@@ -159,6 +196,34 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
     if (!s) return
     s.request('disconnect', { terminateDebuggee: false }, 3000).catch(() => {}).finally(() => setTimeout(() => s.kill(), 300))
   })
+
+  // C# code insight (Ctrl+Click, Find Usages, completion, Code Vision…) — see codeIndex.ts.
+  const index = (root: string) => getIndex(root, (r, ev, status) => send(IPC.codeEvent, { root: r, ev, status }))
+  ipcMain.handle(IPC.codeQuery, async (_e, q: { root: string; op: string; args: any }) => {
+    const ix = index(q.root)
+    const a = q.args ?? {}
+    if (q.op === 'status') return ix.status
+    await ix.ready()
+    switch (q.op) {
+      case 'resolve': return ix.resolve(a.path, a.src, a.offset)
+      case 'complete': return ix.complete(a.path, a.src, a.offset)
+      case 'signature': return ix.signature(a.path, a.src, a.offset)
+      case 'inlay': return ix.inlay(a.path, a.src, a.from, a.to)
+      case 'lens': return ix.lens(a.path, a.src)
+      case 'super': return ix.superOf(a.path, a.src, a.offset)
+      case 'typeDecl': return ix.typeDecl(a.path, a.src, a.offset)
+      case 'implementations': return ix.implementations(a.target)
+      case 'overridable': return ix.overridable(a.path, a.src, a.offset)
+      case 'usages': return ix.usages(a.name, a.target ?? null)
+      case 'localUsages': return ix.localUsages(a.path, a.src, a.line, a.col, a.name)
+      case 'search': return ix.search(a.query ?? '', a.scope ?? 'symbols', a.limit ?? 200)
+      case 'namespacesFor': return ix.namespacesFor(a.name)
+      case 'fileSymbols': return ix.fileSymbols(a.path)
+    }
+    throw new Error(`Unknown code query: ${q.op}`)
+  })
+  ipcMain.on(IPC.codeUpdate, (_e, u: { root: string; path: string; text: string | null }) => { void index(u.root).update(u.path, u.text) })
+  ipcMain.handle(IPC.findInFiles, (_e, a: { root: string; options: FindOptions }) => findInFiles(a.root, a.options))
 
   return mgr
 }

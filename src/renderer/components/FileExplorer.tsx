@@ -28,7 +28,7 @@ export interface ExplorerProject { id: string; name: string; path: string }
  * an IDE window. The host decides what opening a file means, and whether paths can be
  * typed into a terminal.
  */
-export function FileExplorer({ project, title = 'Explorer', onHide, hideTitle, onOpenFile, insertTarget }: {
+export function FileExplorer({ project, title = 'Explorer', onHide, hideTitle, onOpenFile, insertTarget, reveal }: {
   project: ExplorerProject | undefined
   title?: string
   onHide: () => void
@@ -36,6 +36,8 @@ export function FileExplorer({ project, title = 'Explorer', onHide, hideTitle, o
   onOpenFile: (path: string) => void
   /** Main window only: type a path into this terminal (null = no terminal open). */
   insertTarget?: () => { insert: (text: string) => void } | null
+  /** IDE window: select this file in the tree, expanding its folders (Alt+F1). */
+  reveal?: { path: string; nonce: number } | null
 }) {
   const root = project?.path ?? null
 
@@ -69,6 +71,29 @@ export function FileExplorer({ project, title = 'Explorer', onHide, hideTitle, o
     })
     return () => { off(); window.arw.fs.unwatch(root) }
   }, [root, load])
+
+  // Select in Project View: expand every folder down to the file, select and scroll to it.
+  useEffect(() => {
+    if (!reveal || !root) return
+    const file = norm(reveal.path), r = norm(root)
+    if (!file.toLowerCase().startsWith(r.toLowerCase() + '/')) return
+    const parts = file.slice(r.length + 1).split('/')
+    const next = new Set(expanded)
+    let dir = r
+    for (const part of parts.slice(0, -1)) {
+      dir = `${dir}/${part}`
+      next.add(dir)
+      if (!treeRef.current[dir]) load(dir)
+    }
+    setExp(next)
+    setSelected(file)
+    let tries = 0
+    const t = window.setInterval(() => {
+      const el = listRef.current?.querySelector(`[data-path="${CSS.escape(file)}"]`)
+      if (el || ++tries > 20) { window.clearInterval(t); el?.scrollIntoView({ block: 'center' }) }
+    }, 50)
+    return () => window.clearInterval(t)
+  }, [reveal?.nonce])
 
   const setExp = (next: Set<string>) => {
     setExpanded(next)

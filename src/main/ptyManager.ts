@@ -1,6 +1,6 @@
 import { claudeEnv } from './cleanEnv'
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch'
-import { ENV_TERMINAL_ID, ENV_EVENT_URL } from '@shared/constants'
+import { ENV_TERMINAL_ID, ENV_EVENT_URL, CLAUDE_MODEL } from '@shared/constants'
 import { resolveAgent } from '@shared/agents'
 import { ensureUnityMcp } from './unityMcp'
 import { SESSION_ID_RE } from './claudeHistory'
@@ -64,7 +64,7 @@ export class PtyManager {
       const pinned = opts.sessionId && SESSION_ID_RE.test(opts.sessionId) ? opts.sessionId : null
       const sid = resume ?? pinned ?? randomUUID()
       this.sessions.set(opts.id, { id: sid, cwd: opts.cwd })
-      args = resume ? ` --resume ${sid}` : ` --session-id ${sid}`
+      args = (resume ? ` --resume ${sid}` : ` --session-id ${sid}`) + ` --model ${CLAUDE_MODEL}`
     }
     p.write(def.command + args + (opts.exitWithAgent ? exitAfterAgent() : '') + '\r')
   }

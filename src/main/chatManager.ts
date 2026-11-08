@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { ENV_TERMINAL_ID, ENV_EVENT_URL } from '@shared/constants'
+import { ENV_TERMINAL_ID, ENV_EVENT_URL, CLAUDE_MODEL } from '@shared/constants'
 import { SESSION_ID_RE, claudeProjectDir } from './claudeHistory'
 import { claudeEnv } from './cleanEnv'
 
@@ -30,12 +30,19 @@ interface Chat {
   stderr: string
   /** when the pane switched to terminal mode */
   suspendedAt?: number
+  /** control_request id -> waiter */
+  pending: Map<string, { resolve: (r: any) => void; reject: (e: Error) => void }>
 }
 
 export function claudeArgs(sessionId: string, resume: boolean, extra: string[] = []): string[] {
   return ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--include-partial-messages', '--dangerously-skip-permissions',
+    '--include-partial-messages', '--dangerously-skip-permissions', '--model', CLAUDE_MODEL,
     ...(resume ? ['--resume', sessionId] : ['--session-id', sessionId]), ...extra]
+}
+
+/** One stdin line for a control request (interrupt, set_model, mcp_* …). */
+export function controlLine(requestId: string, subtype: string, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype, ...extra } }) + '\n'
 }
 
 /** One stdin line for a prompt. */
@@ -93,7 +100,7 @@ export class ChatManager {
     const cur = this.chats.get(id)
     if (cur) return { sessionId: cur.sessionId }
     const valid = resume && SESSION_ID_RE.test(resume) ? resume : null
-    const chat: Chat = { proc: null, sessionId: valid ?? randomUUID(), cwd, stderr: '' }
+    const chat: Chat = { proc: null, sessionId: valid ?? randomUUID(), cwd, stderr: '', pending: new Map() }
     this.chats.set(id, chat)
     return { sessionId: chat.sessionId }
   }
@@ -125,6 +132,15 @@ export class ChatManager {
         try { ev = JSON.parse(line) } catch { continue }
         // A resumed session can come back under a new id — follow it.
         if (ev?.type === 'system' && ev.subtype === 'init' && SESSION_ID_RE.test(ev.session_id ?? '')) c.sessionId = ev.session_id
+        if (ev?.type === 'control_response') {
+          const w = c.pending.get(ev.response?.request_id)
+          if (w) {
+            c.pending.delete(ev.response.request_id)
+            if (ev.response.subtype === 'error') w.reject(new Error(ev.response.error ?? 'control request failed'))
+            else w.resolve(ev.response.response ?? {})
+          }
+          continue
+        }
         this.onEvent(id, ev)
       }
     })
@@ -133,6 +149,8 @@ export class ChatManager {
     const done = (code: number | null, err?: Error) => {
       if (c.proc !== proc) return
       c.proc = null
+      for (const w of c.pending.values()) w.reject(new Error('Claude exited'))
+      c.pending.clear()
       const text = err ? `Couldn't start Claude Code (${err.message}). Is \`claude\` installed and on PATH?`
         : code ? `Claude exited (code ${code}). ${c.stderr.trim().split('\n').slice(-3).join(' ')}` : ''
       this.onEvent(id, { type: 'arw_exit', code, text })
@@ -156,7 +174,32 @@ export class ChatManager {
   interrupt(id: string): void {
     const proc = this.chats.get(id)?.proc
     if (!proc) return
-    proc.stdin.write(JSON.stringify({ type: 'control_request', request_id: randomUUID(), request: { subtype: 'interrupt' } }) + '\n')
+    proc.stdin.write(controlLine(randomUUID(), 'interrupt'))
+  }
+
+  /**
+   * Ask Claude something out of band (mcp_status, set_model, mcp_toggle …) and get its
+   * response. Starts the process if the pane hasn't talked to Claude yet.
+   */
+  control(id: string, subtype: string, extra: Record<string, unknown> = {}, timeoutMs = 20000): Promise<any> {
+    const c = this.chats.get(id)
+    if (!c) return Promise.reject(new Error('No chat for this pane'))
+    const proc = this.ensureProc(id, c)
+    const rid = randomUUID()
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => { if (c.pending.delete(rid)) reject(new Error(`${subtype} timed out`)) }, timeoutMs)
+      c.pending.set(rid, { resolve: (r) => { clearTimeout(t); resolve(r) }, reject: (e) => { clearTimeout(t); reject(e) } })
+      proc.stdin.write(controlLine(rid, subtype, extra))
+    })
+  }
+
+  /** Continue a different saved conversation in this pane (in-chat /resume). */
+  switchSession(id: string, sessionId: string): { sessionId: string; cwd: string } | null {
+    const c = this.chats.get(id)
+    if (!c || !SESSION_ID_RE.test(sessionId)) return null
+    this.stopProc(c)
+    c.sessionId = sessionId
+    return { sessionId, cwd: c.cwd }
   }
 
   /** Start over with a fresh session (like /clear). */

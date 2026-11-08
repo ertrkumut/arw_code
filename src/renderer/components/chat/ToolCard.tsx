@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import type { ChatItem, DiffHunk } from '@shared/chatModel'
 import { FileIcon } from '../FileIcons'
 import { baseName } from '../../ide/paths'
+import { firstChangedLine } from '@shared/agentEdits'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 
@@ -44,22 +45,41 @@ function countPatch(p?: DiffHunk[]) {
   return { add, del }
 }
 
+/** Line to open a tool's file at: where an edit changed it, or where a read started. */
+function lineOf(t: Tool): number | undefined {
+  if (t.patch?.length) return firstChangedLine(t.patch)
+  if (t.name === 'Read' && t.input?.offset) return Number(t.input.offset) || undefined
+  return undefined
+}
+
 const ICONS: Record<string, string> = { Read: '◉', Edit: '✎', MultiEdit: '✎', Write: '✚', Bash: '›_', PowerShell: '›_', Grep: '⌕', Glob: '⌕',
   WebFetch: '⇣', WebSearch: '⌕', Task: '◈', Agent: '◈', TodoWrite: '☰', Skill: '✦' }
 
-function Diff({ patch }: { patch: DiffHunk[] }) {
+/** New-file line number of each patch line (removed lines point at where they were). */
+function hunkLineNumbers(h: DiffHunk): number[] {
+  let n = h.newStart
+  return h.lines.map(l => (l[0] === '-' ? n : n++))
+}
+
+function Diff({ patch, onOpenLine }: { patch: DiffHunk[]; onOpenLine?: (line: number) => void }) {
   return (
     <div className="ch-diff">
-      {patch.map((h, i) => (
-        <div key={i}>
-          <div className="ch-diff-hunk">@@ −{h.oldStart},{h.oldLines} +{h.newStart},{h.newLines} @@</div>
-          {h.lines.map((l, j) => (
-            <div key={j} className={`ch-diff-line${l[0] === '+' ? ' add' : l[0] === '-' ? ' del' : ''}`}>
-              <span className="ch-diff-sign">{l[0] === '+' || l[0] === '-' ? l[0] : ' '}</span>{l.slice(1) || ' '}
-            </div>
-          ))}
-        </div>
-      ))}
+      {patch.map((h, i) => {
+        const nums = hunkLineNumbers(h)
+        return (
+          <div key={i}>
+            <div className="ch-diff-hunk" title={onOpenLine ? 'Open in the IDE' : undefined}
+              onClick={() => onOpenLine?.(firstChangedLine([h]) ?? h.newStart)}>@@ −{h.oldStart},{h.oldLines} +{h.newStart},{h.newLines} @@</div>
+            {h.lines.map((l, j) => (
+              <div key={j} className={`ch-diff-line${l[0] === '+' ? ' add' : l[0] === '-' ? ' del' : ''}${onOpenLine ? ' link' : ''}`}
+                title={onOpenLine ? `Open at line ${nums[j]}` : undefined}
+                onClick={() => onOpenLine?.(nums[j])}>
+                <span className="ch-diff-sign">{l[0] === '+' || l[0] === '-' ? l[0] : ' '}</span>{l.slice(1) || ' '}
+              </div>
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -82,9 +102,10 @@ export function ToolCard({ tool, children, onOpenFile }: {
   tool: Tool
   /** sub-steps of an Agent/Task step */
   children?: Tool[]
-  onOpenFile: (path: string) => void
+  onOpenFile: (path: string, line?: number) => void
 }) {
   const d = describeTool(tool)
+  const line = lineOf(tool)
   const isTodo = tool.name === 'TodoWrite' && Array.isArray(tool.input?.todos)
   const [open, setOpen] = useState(false)
   const expandable = !isTodo && (!!tool.patch?.length || !!tool.result || !!children?.length || tool.name === 'Bash' || tool.name === 'PowerShell')
@@ -95,8 +116,8 @@ export function ToolCard({ tool, children, onOpenFile }: {
         <span className="ch-tool-ico">{tool.status === 'running' ? <span className="ch-spin" /> : ICONS[tool.name] ?? '•'}</span>
         <span className="ch-tool-verb">{d.verb}</span>
         {d.file ? (
-          <span className="ch-tool-file" title={`${d.file}\nClick to open in the IDE`}
-            onClick={(e) => { e.stopPropagation(); onOpenFile(d.file!) }}>
+          <span className="ch-tool-file" title={`${d.file}\nClick to open in the IDE${line ? ` at line ${line}` : ''}`}
+            onClick={(e) => { e.stopPropagation(); onOpenFile(d.file!, line) }}>
             <FileIcon name={d.target ?? d.file} /><span>{d.target}</span>
           </span>
         ) : d.target ? <span className="ch-tool-target" title={d.target}>{d.target}</span> : null}
@@ -109,7 +130,7 @@ export function ToolCard({ tool, children, onOpenFile }: {
       {open && (
         <div className="ch-tool-body">
           {(tool.name === 'Bash' || tool.name === 'PowerShell') && <pre className="ch-cmd">{tool.input?.command}</pre>}
-          {tool.patch?.length ? <Diff patch={tool.patch} />
+          {tool.patch?.length ? <Diff patch={tool.patch} onOpenLine={d.file ? (l) => onOpenFile(d.file!, l) : undefined} />
             : children?.length ? (
               <div className="ch-substeps">
                 {children.map(c => <ToolCard key={c.id} tool={c} onOpenFile={onOpenFile} />)}

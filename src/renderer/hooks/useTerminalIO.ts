@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { useIde } from '../store/ideStore'
 import { getTheme, type TerminalPalette } from '../themes'
 import { useApp } from '../store/appStore'
+import { useZoom, attachWheelZoom } from '../store/zoomStore'
 import type { AgentId } from '@shared/agents'
 import '@xterm/xterm/css/xterm.css'
 
@@ -19,7 +20,7 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId, session?
   useEffect(() => {
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
-      fontSize: 13, lineHeight: 1.35, fontWeight: 400, fontWeightBold: 600,
+      fontSize: useZoom.getState().term, lineHeight: 1.35, fontWeight: 400, fontWeightBold: 600,
       cursorBlink: true,
       theme: xtermTheme(getTheme(useIde.getState().themeId).terminal)
     })
@@ -142,6 +143,15 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId, session?
 
     const refit = () => { if (safeFit()) window.arw.resize(id, term.cols, term.rows) }
 
+    // Ctrl+wheel zooms this terminal's font; every terminal follows the shared
+    // size, and the PTY is re-measured so the shell's columns match the new glyphs.
+    const offWheel = elRef.current ? attachWheelZoom(elRef.current, 'term') : () => {}
+    const offZoom = useZoom.subscribe((st, prev) => {
+      if (st.term === prev.term) return
+      term.options.fontSize = st.term
+      refit()
+    })
+
     // xterm sizes its grid from whatever glyph is available the instant it opens.
     // JetBrains Mono is a bundled web font that loads asynchronously, so the first
     // fit almost always measures the fallback monospace — a narrower glyph — and
@@ -170,6 +180,8 @@ export function useTerminalIO(id: string, cwd: string, agent?: AgentId, session?
       offData()
       unsubFocus()
       offTheme()
+      offWheel()
+      offZoom()
       ro.disconnect()
       term.dispose()
     }

@@ -57,8 +57,20 @@ describe('editor file IO', () => {
   })
 
   it('detects binary files', async () => {
-    const f = join(dir, 'tex.png')
+    const f = join(dir, 'blob.dat')
     writeFileSync(f, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]))
     expect((await readTextFile(f)).kind).toBe('binary')
+  })
+
+  it('returns images as a data URL for the viewer', async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01])
+    const f = join(dir, 'Tex.PNG')
+    writeFileSync(f, bytes)
+    const r = await readTextFile(f)
+    expect(r).toEqual({ kind: 'image', dataUrl: `data:image/png;base64,${bytes.toString('base64')}`, size: bytes.length })
+    // SVG is text on disk but previews as a picture.
+    const svg = join(dir, 'icon.svg')
+    writeFileSync(svg, '<svg xmlns="http://www.w3.org/2000/svg"/>')
+    expect((await readTextFile(svg)).kind).toBe('image')
   })
 })

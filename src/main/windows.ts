@@ -121,6 +121,11 @@ export class WindowManager {
     return true
   }
 
+  ideWindow(projectId: string): BrowserWindow | null {
+    const w = this.ides.get(projectId)
+    return w && !w.isDestroyed() ? w : null
+  }
+
   /** Return a torn-off terminal to the grid if it was released over the main window. */
   reattach(p: { termId: string; screenX: number; screenY: number }): void {
     const child = this.children.get(p.termId)

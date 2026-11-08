@@ -12,6 +12,8 @@ export const IPC = {
   chatReset: 'chat:reset',    // renderer -> main (invoke): new conversation (/clear)
   chatSuspend: 'chat:suspend', // renderer -> main (invoke): pause the headless process before terminal mode
   chatReturn: 'chat:return',   // renderer -> main (invoke): back to chat; returns the fresh transcript
+  chatControl: 'chat:control', // renderer -> main (invoke): control_request -> response body
+  chatSwitch: 'chat:switch',   // renderer -> main (invoke): continue another saved session in this pane
   chatEvent: 'chat:event',    // main -> renderer: { id, event } one Claude stream-json event
   ptyData: 'pty:data',        // main -> renderer
   ptyExit: 'pty:exit',        // main -> renderer
@@ -27,6 +29,7 @@ export const IPC = {
   fsExists: 'fs:exists',
   clipboardRead: 'clipboard:read',
   clipboardWrite: 'clipboard:write',
+  usageCache: 'usage:cache',               // renderer -> main (invoke): plan usage the Claude status line last cached, or null
   clipboardReadImage: 'clipboard:readImage', // renderer -> main (invoke): clipboard image as a PNG data URL, or null
   clipboardWriteImage: 'clipboard:writeImage', // renderer -> main (invoke): put an image data URL on the clipboard
   openPath: 'shell:openPath',
@@ -45,14 +48,30 @@ export const IPC = {
   ideLoad: 'ide:load',                     // renderer -> main (invoke): editor/IDE state (theme, breakpoints, tabs)
   idePatch: 'ide:patch',                   // renderer -> main: merge a change into the IDE state
   ideChanged: 'ide:changed',               // main -> other windows: that change, to apply locally
-  ideOpen: 'ide:open',                     // renderer -> main: open/focus a project's IDE window (optionally a file)
+  ideOpen: 'ide:open',                     // renderer -> main: open/focus a project's IDE window (optionally a file + line)
+  ideReveal: 'ide:reveal',                 // main -> IDE window: scroll to { file, line }
+  ideTakeReveal: 'ide:takeReveal',         // IDE window -> main (invoke): reveal queued while the window was opening
+  editsList: 'edits:list',                 // renderer -> main (invoke): Claude's unreviewed edits (file + baseline)
+  editsSet: 'edits:set',                   // renderer -> main: new baseline for a file (null = reviewed)
+  editsChanged: 'edits:changed',           // main -> renderers: one file's edit tracking changed
   setTitleBarColors: 'win:titleBarColors', // renderer -> main: recolor the native window-controls overlay
   debugStart: 'debug:start',               // renderer -> main (invoke): spawn the Unity debug adapter + initialize
   debugRequest: 'debug:request',           // renderer -> main (invoke): any DAP request -> response body
   debugStop: 'debug:stop',                 // renderer -> main: disconnect + kill the adapter
   debugEvent: 'debug:event',               // main -> renderer: DAP event { event, body }
-  debugExit: 'debug:exit'                  // main -> renderer: adapter process ended { code, stderr }
+  debugExit: 'debug:exit',                 // main -> renderer: adapter process ended { code, stderr }
+  codeQuery: 'code:query',                 // IDE -> main (invoke): C# code-insight query { root, op, args }
+  codeUpdate: 'code:update',               // IDE -> main: an editor buffer changed (text) / closed (null)
+  codeEvent: 'code:event',                 // main -> IDE: index progress / changed { root, ev, status }
+  findInFiles: 'code:findInFiles'          // IDE -> main (invoke): Find in Files across the project
 } as const
 
 export const DEFAULT_SIDEBAR_PCT = 25
 export const DEFAULT_EXPLORER_WIDTH = 280
+
+/**
+ * Model every Claude ARWCode starts (chat panes and terminal panes). The `opus` alias
+ * follows the latest Opus. Set explicitly so ARWCode doesn't inherit whatever the user's
+ * global ~/.claude/settings.json pins. /model still switches it per conversation.
+ */
+export const CLAUDE_MODEL = 'opus'

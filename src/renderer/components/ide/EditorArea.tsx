@@ -5,6 +5,10 @@ import { FileIcon } from '../FileIcons'
 import { baseName, fileKey, relativeTo } from '../../ide/paths'
 import { releaseModel, saveFile, openPathsIn, reloadIfClean } from '../../ide/models'
 import { ConfirmDialog } from '../ConfirmDialog'
+import { useEdits } from '../../store/editsStore'
+import { useNav } from '../../store/navStore'
+import { SymbolIcon } from './SymbolIcon'
+import { navigateTo } from '../../ide/context'
 
 const EMPTY = { paths: [] as string[], active: null as string | null }
 
@@ -12,7 +16,9 @@ const EMPTY = { paths: [] as string[], active: null as string | null }
 export function EditorArea({ project }: { project: { id: string; path: string } }) {
   const tabs = useIde(s => (project ? s.tabs[project.id] : undefined) ?? EMPTY)
   const files = useIde(s => s.files)
+  const edits = useEdits(s => s.edits)
   const closeRequest = useIde(s => s.closeRequest)
+  const crumbSymbols = useNav(s => s.caret?.symbols)
   const notice = useIde(s => s.notice)
   const { setActiveTab, requestCloseTab, closeTab, cancelClose } = useIde.getState()
   const stripRef = useRef<HTMLDivElement>(null)
@@ -25,7 +31,9 @@ export function EditorArea({ project }: { project: { id: string; path: string } 
     window.arw.fs.watch(root)
     const off = window.arw.fs.onChanged(({ root: r, dirs }) => {
       if (fileKey(r) !== fileKey(root)) return
-      openPathsIn(dirs).forEach(p => void reloadIfClean(p))
+      const st = useIde.getState()
+      const imageTabs = (st.tabs[project.id]?.paths ?? []).filter(p => st.files[fileKey(p)]?.kind === 'image')
+      openPathsIn(dirs, imageTabs).forEach(p => void reloadIfClean(p))
     })
     return () => { off(); window.arw.fs.unwatch(root) }
   }, [root, hasTabs])
@@ -42,7 +50,9 @@ export function EditorArea({ project }: { project: { id: string; path: string } 
   const prevPaths = useRef<string[]>([])
   useEffect(() => {
     const now = new Set(tabs.paths.map(p => fileKey(p)))
-    prevPaths.current.filter(p => !now.has(fileKey(p))).forEach(releaseModel)
+    const gone = prevPaths.current.filter(p => !now.has(fileKey(p)))
+    gone.forEach(releaseModel)
+    gone.forEach(p => useNav.getState().noteClosed(p))
     prevPaths.current = tabs.paths
   }, [tabs.paths])
 
@@ -59,8 +69,9 @@ export function EditorArea({ project }: { project: { id: string; path: string } 
           const name = baseName(p)
           const rel = relativeTo(project.path, p)
           const isActive = active != null && fileKey(active) === k
+          const ai = !!edits[k]
           return (
-            <div key={k} className={`ed-tab${isActive ? ' active' : ''}${dirty ? ' dirty' : ''}`} title={rel}
+            <div key={k} className={`ed-tab${isActive ? ' active' : ''}${dirty ? ' dirty' : ''}${ai ? ' ai' : ''}`} title={ai ? `${rel}\nChanged by Claude — not reviewed yet` : rel}
               onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); close(p) } }}
               onClick={() => setActiveTab(project.id, p)}>
               <FileIcon name={name} />
@@ -80,6 +91,14 @@ export function EditorArea({ project }: { project: { id: string; path: string } 
             <React.Fragment key={i}>
               {i > 0 && <span className="ed-crumb-sep">›</span>}
               <span className={i === a.length - 1 ? 'ed-crumb last' : 'ed-crumb'}>{seg}</span>
+            </React.Fragment>
+          ))}
+          {crumbSymbols?.filter(c => c.kind !== 'namespace').map((c, i) => (
+            <React.Fragment key={`s${i}`}>
+              <span className="ed-crumb-sep">›</span>
+              <span className="ed-crumb sym" title={`Go to ${c.name}`} onClick={() => navigateTo({ path: active, line: c.line, col: c.col })}>
+                <SymbolIcon kind={c.kind} />{c.name}
+              </span>
             </React.Fragment>
           ))}
         </div>

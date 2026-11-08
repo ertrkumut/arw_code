@@ -58,7 +58,7 @@ describe('PtyManager status inference', () => {
 describe('PtyManager agent launch command', () => {
   const launched = () => lastPty.written[0]
   // A fresh Claude terminal pins its own session id so its transcript can be found later.
-  const freshClaude = new RegExp(`^${AGENTS.claude.command} --session-id [0-9a-f-]{36}\\r$`)
+  const freshClaude = new RegExp(`^${AGENTS.claude.command} --session-id [0-9a-f-]{36} --model opus\\r$`)
 
   it('launches the selected CLI', () => {
     new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'gemini' })
@@ -85,7 +85,7 @@ describe('PtyManager agent launch command', () => {
     const sid = '11111111-2222-3333-4444-555555555555'
     const m = new PtyManager(vi.fn(), vi.fn())
     m.spawn({ ...opts, agent: 'claude', resume: sid })
-    expect(launched()).toBe(`${AGENTS.claude.command} --resume ${sid}\r`)
+    expect(launched()).toBe(`${AGENTS.claude.command} --resume ${sid} --model opus\r`)
     expect(m.claudeSession(opts.id)?.id).toBe(sid)
 
     new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'claude', resume: 'x; rm -rf /' })

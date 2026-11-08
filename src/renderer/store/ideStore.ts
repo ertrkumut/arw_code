@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { DEFAULT_THEME_ID, applyUiTheme, getTheme } from '../themes'
 import { fileKey } from '../ide/paths'
 import type { IdePatch, IdeStateData } from '../../main/ideState'
+import { DEFAULT_EDITOR_PREFS, type EditorPrefs } from '@shared/editorPrefs'
+import { setKeymapOverrides } from '../ide/keymap'
 
 /** Breakpoints for one file. `path` keeps the real on-disk spelling (sent to the debugger). */
 export interface FileBreakpoints { path: string; lines: number[] }
@@ -11,6 +13,7 @@ export interface ProjectTabs { paths: string[]; active: string | null }
 export type FileStatus =
   | { kind: 'loading' }
   | { kind: 'ready'; dirty: boolean }
+  | { kind: 'image'; dataUrl: string; size: number }
   | { kind: 'binary' }
   | { kind: 'tooLarge'; size: number }
   | { kind: 'error'; message: string }
@@ -23,13 +26,16 @@ interface IdeState {
   bottomHeight: number                // px height of the Debug tool window
   treeWidth: number                   // px width of the IDE window's project tree
   treeOpen: boolean
+  bookmarks: Record<string, FileBreakpoints>
+  keymap: Record<string, string[]>
+  editorPrefs: EditorPrefs
 
   // ---- window-local ----
   loaded: boolean
   /** per-file load/dirty status, keyed by fileKey */
   files: Record<string, FileStatus>
   /** ask the editor to scroll to / place the caret on this line once the file shows */
-  reveal: { key: string; line: number; nonce: number } | null
+  reveal: { key: string; line: number; col?: number; nonce: number } | null
   /** closing a tab with unsaved changes waits for confirmation */
   closeRequest: { projectId: string; path: string } | null
   /** one-line message over the editor (e.g. a failed save) */
@@ -39,7 +45,7 @@ interface IdeState {
 
   load: () => Promise<void>
   setTheme: (id: string) => void
-  openFile: (projectId: string, path: string, line?: number) => void
+  openFile: (projectId: string, path: string, line?: number, col?: number) => void
   setActiveTab: (projectId: string, path: string) => void
   requestCloseTab: (projectId: string, path: string) => void
   closeTab: (projectId: string, path: string) => void
@@ -52,6 +58,13 @@ interface IdeState {
   setTreeWidth: (px: number, commit?: boolean) => void
   toggleTree: () => void
   setDebugOpen: (open: boolean) => void
+  toggleBookmark: (path: string, line: number) => void
+  setBookmarkLines: (path: string, lines: number[]) => void
+  clearBookmarks: () => void
+  /** null resets the action to its default keys */
+  setKeys: (actionId: string, keys: string[] | null) => void
+  resetKeymap: () => void
+  setEditorPref: <K extends keyof EditorPrefs>(k: K, v: EditorPrefs[K]) => void
 }
 
 export const clampBottom = (px: number) => Math.max(120, Math.min(1400, Math.round(px)))
@@ -76,6 +89,18 @@ function merge(st: IdeState, p: IdePatch): Partial<IdeState> {
     for (const [k, v] of Object.entries(p.breakpoints)) { if (v && v.lines.length) bps[k] = v; else delete bps[k] }
     out.breakpoints = bps
   }
+  if (p.bookmarks) {
+    const bms = { ...st.bookmarks }
+    for (const [k, v] of Object.entries(p.bookmarks)) { if (v && v.lines.length) bms[k] = v; else delete bms[k] }
+    out.bookmarks = bms
+  }
+  if (p.keymap) {
+    const km = { ...st.keymap }
+    for (const [k, v] of Object.entries(p.keymap)) { if (v) km[k] = v; else delete km[k] }
+    out.keymap = km
+    setKeymapOverrides(km)
+  }
+  if (p.editorPrefs) out.editorPrefs = { ...st.editorPrefs, ...p.editorPrefs }
   return out
 }
 
@@ -86,6 +111,7 @@ export const useIde = create<IdeState>((set, get) => {
 
   return {
     themeId: DEFAULT_THEME_ID, breakpoints: {}, tabs: {}, bottomHeight: 280, treeWidth: 280, treeOpen: true,
+    bookmarks: {}, keymap: {}, editorPrefs: { ...DEFAULT_EDITOR_PREFS },
     loaded: false, files: {}, reveal: null, closeRequest: null, notice: null, debugOpen: false,
 
     load: async () => {
@@ -99,8 +125,12 @@ export const useIde = create<IdeState>((set, get) => {
         bottomHeight: clampBottom(s?.bottomHeight ?? 280),
         treeWidth: clampTree(s?.treeWidth ?? 280),
         treeOpen: s?.treeOpen ?? true,
+        bookmarks: s?.bookmarks ?? {},
+        keymap: s?.keymap ?? {},
+        editorPrefs: { ...DEFAULT_EDITOR_PREFS, ...(s?.editorPrefs ?? {}) },
         loaded: true
       })
+      setKeymapOverrides(s?.keymap ?? {})
       applyUiTheme(getTheme(themeId))
       // Other windows' changes (theme switch, a file opened from the main window, …).
       window.arw.ide.onChanged((p) => {
@@ -114,11 +144,11 @@ export const useIde = create<IdeState>((set, get) => {
       applyUiTheme(t)
     },
 
-    openFile: (projectId, path, line) => {
+    openFile: (projectId, path, line, col) => {
       const cur = get().tabs[projectId] ?? { paths: [], active: null }
       const existing = cur.paths.find(p => fileKey(p) === fileKey(path))
       commitTabs(projectId, { paths: existing ? cur.paths : [...cur.paths, path], active: existing ?? path })
-      if (line) set({ reveal: { key: fileKey(path), line, nonce: Math.random() } })
+      if (line) set({ reveal: { key: fileKey(path), line, col, nonce: Math.random() } })
     },
     setActiveTab: (projectId, path) => {
       const cur = get().tabs[projectId] ?? { paths: [], active: null }
@@ -167,6 +197,22 @@ export const useIde = create<IdeState>((set, get) => {
       else set({ treeWidth: clampTree(px) })
     },
     toggleTree: () => commit({ treeOpen: !get().treeOpen }),
-    setDebugOpen: (open) => set({ debugOpen: open })
+    setDebugOpen: (open) => set({ debugOpen: open }),
+
+    toggleBookmark: (path, line) => {
+      const cur = get().bookmarks[fileKey(path)]?.lines ?? []
+      get().setBookmarkLines(path, cur.includes(line) ? cur.filter(l => l !== line) : [...cur, line])
+    },
+    setBookmarkLines: (path, lines) => {
+      const k = fileKey(path)
+      const prev = get().bookmarks[k]?.lines ?? []
+      const uniq = [...new Set(lines)].sort((a, b) => a - b)
+      if (uniq.length === prev.length && uniq.every((l, i) => l === prev[i])) return
+      commit({ bookmarks: { [k]: uniq.length ? { path, lines: uniq } : null } })
+    },
+    clearBookmarks: () => commit({ bookmarks: Object.fromEntries(Object.keys(get().bookmarks).map(k => [k, null])) }),
+    setKeys: (actionId, keys) => commit({ keymap: { [actionId]: keys } }),
+    resetKeymap: () => commit({ keymap: Object.fromEntries(Object.keys(get().keymap).map(k => [k, null])) }),
+    setEditorPref: (k, v) => commit({ editorPrefs: { [k]: v } })
   }
 })

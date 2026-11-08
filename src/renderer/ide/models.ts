@@ -1,6 +1,7 @@
 import { monaco, languageFor, ensureMonaco } from './monaco'
 import { fileKey } from './paths'
 import { useIde } from '../store/ideStore'
+import { ideCtx, isCSharp } from './context'
 
 /**
  * One Monaco text model per open file, shared by every view. Tracks the saved version
@@ -10,6 +11,26 @@ interface Entry { path: string; model: monaco.editor.ITextModel; savedVersion: n
 const entries = new Map<string, Entry>()
 
 export const getEntry = (path: string) => entries.get(fileKey(path))
+
+/** File path behind a model (models are keyed by path; this is the reverse lookup). */
+export function pathOfModel(model: monaco.editor.ITextModel | null | undefined): string | null {
+  if (!model) return null
+  for (const e of entries.values()) if (e.model === model) return e.path
+  return null
+}
+
+/** Text models currently open (path + model). */
+export const openEntries = () => [...entries.values()].map(e => ({ path: e.path, model: e.model }))
+
+/** Keep the C# index in main in step with unsaved edits (it overlays these buffers). */
+function syncToIndex(e: Entry) {
+  if (!isCSharp(e.path) || !ideCtx.root) return
+  let t: number | undefined
+  e.model.onDidChangeContent(() => {
+    clearTimeout(t)
+    t = window.setTimeout(() => { if (!e.model.isDisposed()) window.arw.code.update(ideCtx.root, e.path, e.model.getValue()) }, 350)
+  })
+}
 
 function updateDirty(e: Entry) {
   const dirty = e.model.getAlternativeVersionId() !== e.savedVersion
@@ -34,6 +55,7 @@ export async function openModel(path: string): Promise<monaco.editor.ITextModel 
     const e: Entry = { path, model, savedVersion: model.getAlternativeVersionId(), bom: f.bom }
     entries.set(k, e)
     model.onDidChangeContent(() => updateDirty(e))
+    syncToIndex(e)
     updateDirty(e)
     return model
   } catch (err: any) {
@@ -67,8 +89,10 @@ export function releaseModel(path: string) {
   const k = fileKey(path)
   const stillOpen = Object.values(useIde.getState().tabs).some(t => t.paths.some(p => fileKey(p) === k))
   if (stillOpen) return
-  entries.get(k)?.model.dispose()
+  const e = entries.get(k)
+  e?.model.dispose()
   entries.delete(k)
+  if (e && isCSharp(e.path) && ideCtx.root) window.arw.code.update(ideCtx.root, e.path, null)
   useIde.setState((st) => { const { [k]: _, ...rest } = st.files; return { files: rest } })
 }
 
@@ -79,7 +103,14 @@ export function releaseModel(path: string) {
  */
 export async function reloadIfClean(path: string) {
   const e = getEntry(path)
-  if (!e || e.model.getAlternativeVersionId() !== e.savedVersion) return
+  if (!e) {
+    // Not a text buffer — an open image tab just re-reads the file.
+    const st = useIde.getState()
+    if (st.files[fileKey(path)]?.kind !== 'image') return
+    try { const f = await window.arw.fs.readFile(path); if (f.kind === 'image') st.setFileStatus(path, f) } catch { /* deleted */ }
+    return
+  }
+  if (e.model.getAlternativeVersionId() !== e.savedVersion) return
   let f
   try { f = await window.arw.fs.readFile(e.path) } catch { return }   // deleted / locked
   if (f.kind !== 'text') return
@@ -91,12 +122,15 @@ export async function reloadIfClean(path: string) {
   updateDirty(e)
 }
 
-/** Paths of open models living directly in one of these folders. */
-export function openPathsIn(dirs: string[]): string[] {
+/** Paths of open models (plus any `also` paths, e.g. image tabs) living directly in one of these folders. */
+export function openPathsIn(dirs: string[], also: string[] = []): string[] {
   const keys = new Set(dirs.map(d => fileKey(d)))
-  return [...entries.values()].map(e => e.path).filter(p => {
+  const seen = new Set<string>()
+  return [...[...entries.values()].map(e => e.path), ...also].filter(p => {
     const k = fileKey(p)
-    return keys.has(k.slice(0, k.lastIndexOf('/')))
+    if (seen.has(k) || !keys.has(k.slice(0, k.lastIndexOf('/')))) return false
+    seen.add(k)
+    return true
   })
 }
 

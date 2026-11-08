@@ -1,4 +1,5 @@
-import { app, Menu } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
+import { execFileSync } from 'child_process'
 import { registerIpc } from './ipc'
 import { StatusBridge } from './statusBridge'
 import { noteSession } from './chatManager'
@@ -14,6 +15,16 @@ import { WindowManager } from './windows'
 if (!app.isPackaged) {
   app.setPath('userData', `${app.getPath('userData')}-dev`)
   app.setName('ARWCode Dev')
+}
+
+// macOS apps launched from Finder/Dock get a bare PATH (/usr/bin:/bin:...), so `claude`
+// (Homebrew / npm global / ~/.local/bin) isn't found. Borrow PATH from the user's login shell.
+if (process.platform === 'darwin') {
+  try {
+    const out = execFileSync(process.env.SHELL || '/bin/zsh', ['-ilc', 'printf "__ARWPATH__%s__ARWPATH__" "$PATH"'], { encoding: 'utf8', timeout: 5000 })
+    const m = /__ARWPATH__(.*?)__ARWPATH__/.exec(out)
+    if (m?.[1]) process.env.PATH = m[1]
+  } catch (e) { console.error('[arw] login-shell PATH lookup failed:', e) }
 }
 
 const wm = new WindowManager()
@@ -34,7 +45,10 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null)
+  // macOS needs an app menu or Cmd+C / Cmd+V / Cmd+Q stop working.
+  Menu.setApplicationMenu(process.platform === 'darwin'
+    ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }])
+    : null)
   try { installHooks() } catch (e) { console.error('[arw] installHooks failed:', e) }
   const bridge = new StatusBridge((e) => {
     if (e.sessionId) noteSession(e.id, e.sessionId)
@@ -44,6 +58,8 @@ app.whenReady().then(async () => {
   const mgr = registerIpc(wm, () => bridge.url())
   app.on('before-quit', () => { mgr.killAll(); bridge.stop() })
   wm.createMain()
+  // macOS: clicking the Dock icon with no windows open reopens the main window.
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) wm.createMain() })
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 

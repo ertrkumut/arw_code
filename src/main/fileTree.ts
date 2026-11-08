@@ -82,11 +82,25 @@ export class TreeWatcher {
 }
 
 export const MAX_EDIT_BYTES = 8 * 1024 * 1024
+/** Images are previewed, not edited, so they get a roomier cap than text (game textures run big). */
+export const MAX_IMAGE_BYTES = 64 * 1024 * 1024
 
 export type TextFile =
   | { kind: 'text'; content: string; bom: boolean }
+  | { kind: 'image'; dataUrl: string; size: number }
   | { kind: 'binary' }
   | { kind: 'tooLarge'; size: number }
+
+/** Raster/vector formats Chromium can draw in an <img>, keyed by lowercase extension. */
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+  bmp: 'image/bmp', ico: 'image/x-icon', svg: 'image/svg+xml', avif: 'image/avif'
+}
+
+export function imageMime(file: string): string | null {
+  const i = file.lastIndexOf('.')
+  return i < 0 ? null : (IMAGE_MIME[file.slice(i + 1).toLowerCase()] ?? null)
+}
 
 /** NUL bytes in the first 8 KB ⇒ binary (same heuristic git uses). */
 export function looksBinary(buf: Buffer): boolean {
@@ -98,6 +112,12 @@ export function looksBinary(buf: Buffer): boolean {
 /** Read a file for the editor. A UTF-8 BOM is stripped and reported so save can restore it. */
 export async function readTextFile(file: string): Promise<TextFile> {
   const st = await stat(file)
+  const mime = imageMime(file)
+  if (mime) {
+    if (st.size > MAX_IMAGE_BYTES) return { kind: 'tooLarge', size: st.size }
+    const buf = await readFile(file)
+    return { kind: 'image', dataUrl: `data:${mime};base64,${buf.toString('base64')}`, size: st.size }
+  }
   if (st.size > MAX_EDIT_BYTES) return { kind: 'tooLarge', size: st.size }
   const buf = await readFile(file)
   if (looksBinary(buf)) return { kind: 'binary' }

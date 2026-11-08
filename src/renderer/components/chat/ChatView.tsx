@@ -1,9 +1,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useChat, COMMAND_HELP, isTerminalCommand } from '../../store/chatStore'
 import { useApp } from '../../store/appStore'
+import { useZoom, attachWheelZoom } from '../../store/zoomStore'
 import { emptyChat, formatDuration, type ChatItem } from '@shared/chatModel'
 import { Markdown } from './Markdown'
 import { ToolCard } from './ToolCard'
+import { ChatDialogs } from './ChatDialogs'
+import { UsageBar } from './UsageBar'
 import { ImageStrip } from '../ImageStrip'
 import { fuzzyScore } from '../../ide/fuzzy'
 import { FileIcon } from '../FileIcons'
@@ -57,12 +60,17 @@ export function ChatView({ termId, cwd, project, resume }: {
   const [mention, setMention] = useState<{ start: number; query: string; idx: number } | null>(null)
   const [slash, setSlash] = useState<{ query: string; idx: number } | null>(null)
   const catalog = useChat(s => s.catalog)
+  const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const stick = useRef(true)
   const index = useFileIndex(cwd)
 
   useEffect(() => { void useChat.getState().open(termId, cwd, resume) }, [termId, cwd, resume])
+
+  // Ctrl+wheel zooms the chat text; the size drives every chat font via --ch-fs.
+  const chatFs = useZoom(s => s.chat)
+  useEffect(() => { const el = rootRef.current; return el ? attachWheelZoom(el, 'chat') : undefined }, [])
 
   // Focus requests (new pane, Ctrl+1..9) land in the prompt box.
   useEffect(() => {
@@ -93,8 +101,8 @@ export function ChatView({ termId, cwd, project, resume }: {
     el.style.height = Math.min(el.scrollHeight, 220) + 'px'
   }, [draft])
 
-  const openFile = (file: string) => {
-    if (project) window.arw.ide.open({ projectId: project.id, name: project.name, path: project.path, file })
+  const openFile = (file: string, line?: number) => {
+    if (project) window.arw.ide.open({ projectId: project.id, name: project.name, path: project.path, file, line })
   }
 
   // Sub-steps of Agent/Task tools are shown inside their parent card.
@@ -177,6 +185,7 @@ export function ChatView({ termId, cwd, project, resume }: {
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (useChat.getState().dialog) return
     if (slash && slashResults.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSlash({ ...slash, idx: Math.min(slashResults.length - 1, slash.idx + 1) }); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSlash({ ...slash, idx: Math.max(0, slash.idx - 1) }); return }
@@ -216,7 +225,8 @@ export function ChatView({ termId, cwd, project, resume }: {
   const empty = top.length === 0 && !chat.busy
 
   return (
-    <div className="ch-root" onMouseDown={(e) => { if (e.target === e.currentTarget) inputRef.current?.focus() }}>
+    <div className="ch-root" ref={rootRef} style={{ '--ch-fs': `${chatFs}px` } as React.CSSProperties}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) inputRef.current?.focus() }}>
       <div className="ch-list scroll-slim" ref={listRef} onScroll={onScroll}>
         {empty && (
           <div className="ch-empty">
@@ -256,6 +266,7 @@ export function ChatView({ termId, cwd, project, resume }: {
         {chat.busy && <Working since={chat.turnStartedAt} thinking={chat.liveThinking} />}
       </div>
 
+      <ChatDialogs termId={termId} cwd={cwd} />
       <div className="ch-composer">
         {slash && slashResults.length > 0 && (
           <div className="ch-mention">
@@ -298,6 +309,7 @@ export function ChatView({ termId, cwd, project, resume }: {
             </button>
           </div>
         </div>
+        <UsageBar chat={chat} />
       </div>
     </div>
   )

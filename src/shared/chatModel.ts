@@ -40,11 +40,48 @@ export interface ChatState {
   slashCommands: string[]
   /** of those, the ones that only work in the interactive terminal */
   terminalCommands: string[]
+  /** USD spent by this chat's Claude process so far (Claude reports it cumulatively). */
+  costUsd: number | null
+  /** Tokens in the context window as of the latest main-thread reply. */
+  contextTokens: number | null
+  /** Size of the model's context window, once Claude reports it. */
+  contextWindow: number | null
+}
+
+/** One plan-usage window (fraction 0..1 of the limit used, reset as epoch seconds). */
+export interface LimitWindow { used: number; resetsAt: number }
+/** Account-wide plan usage, as Claude reports it in `rate_limit_event`. */
+export interface UsageLimits { fiveHour: LimitWindow | null; sevenDay: LimitWindow | null; ts: number }
+
+const limitWindow = (w: any): LimitWindow | null =>
+  w && typeof w.utilization === 'number' ? { used: w.utilization, resetsAt: Number(w.resetsAt) || 0 } : null
+
+/** Plan usage out of a `rate_limit_event`, or null when it carries none. */
+export function limitsFromEvent(e: any, now = Date.now()): UsageLimits | null {
+  if (e?.type !== 'rate_limit_event') return null
+  const info = e.rate_limit_info ?? {}
+  const win = info.unifiedWindows ?? {}
+  let fiveHour = limitWindow(win.five_hour)
+  const sevenDay = limitWindow(win.seven_day)
+  // Older CLIs only send the top-level fields for the window that applies.
+  if (!fiveHour && info.rateLimitType === 'five_hour' && typeof info.utilization === 'number')
+    fiveHour = { used: info.utilization, resetsAt: Number(info.resetsAt) || 0 }
+  return fiveHour || sevenDay ? { fiveHour, sevenDay, ts: now } : null
+}
+
+/** Context window of the conversation's model from a result's `modelUsage` (subagents may use others). */
+function contextWindowOf(modelUsage: any, model: string | null): number | null {
+  if (!modelUsage || typeof modelUsage !== 'object') return null
+  const entries = Object.entries(modelUsage).filter(([, v]: any) => typeof v?.contextWindow === 'number') as [string, any][]
+  if (!entries.length) return null
+  const want = (model ?? '').replace(/\[1m\]$/i, '').toLowerCase()
+  const hit = want && entries.find(([k]) => k.toLowerCase() === want || k.toLowerCase().startsWith(want) || want.startsWith(k.toLowerCase()))
+  return hit ? hit[1].contextWindow : Math.max(...entries.map(([, v]) => v.contextWindow))
 }
 
 export const emptyChat = (): ChatState => ({
   items: [], liveText: '', liveThinking: '', thinkingStartedAt: null, busy: false, turnStartedAt: null, sessionId: null, model: null,
-  slashCommands: [], terminalCommands: []
+  slashCommands: [], terminalCommands: [], costUsd: null, contextTokens: null, contextWindow: null
 })
 
 let seq = 0
@@ -142,6 +179,10 @@ export function applyEvent(s: ChatState, e: any, now = Date.now()): ChatState {
       const blocks: any[] = Array.isArray(e.message?.content) ? e.message.content : []
       const msgId: string = e.message?.id ?? nid('m')
       let items = s.items, next = s
+      // Everything the model just read plus what it wrote is what the context now holds.
+      const u = e.message?.usage
+      if (!parent && u && typeof u.input_tokens === 'number')
+        next = { ...next, contextTokens: u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0) }
       blocks.forEach((b, i) => {
         // Live output and transcripts send one block per event, so the index isn't unique —
         // key text/thinking blocks by a hash of their content.
@@ -198,6 +239,8 @@ export function applyEvent(s: ChatState, e: any, now = Date.now()): ChatState {
       const items = s.items.map(it => (it.kind === 'tool' && it.status === 'running' ? { ...it, status: 'error' as const, result: it.result ?? (stopped ? 'Stopped' : '') } : it))
       return { ...s, busy: false, turnStartedAt: null, liveText: '', liveThinking: '', thinkingStartedAt: null,
         sessionId: e.session_id ?? s.sessionId,
+        costUsd: typeof e.total_cost_usd === 'number' ? e.total_cost_usd : s.costUsd,
+        contextWindow: contextWindowOf(e.modelUsage, s.model) ?? s.contextWindow,
         items: [...items, { kind: 'turn', id: nid('t'), ms, stopped, error }] }
     }
   }

@@ -196,6 +196,11 @@ function defineTheme(t: Theme) {
       'editorHoverWidget.background': t.ui['--bg-raised'],
       'editorHoverWidget.border': t.ui['--border-strong'],
       'editorSuggestWidget.background': t.ui['--bg-raised'],
+      'editorCodeLens.foreground': e.comment,
+      'editorInlayHint.foreground': e.comment,
+      'editorInlayHint.background': t.kind === 'dark' ? '#FFFFFF0D' : '#0000000A',
+      'editorInlayHint.parameterForeground': e.comment,
+      'editorInlayHint.parameterBackground': t.kind === 'dark' ? '#FFFFFF0D' : '#0000000A',
       'minimap.background': e.background
     }
   })

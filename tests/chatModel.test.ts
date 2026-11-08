@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyEvent, chatFromTranscript, emptyChat, formatDuration, type ChatState } from '@shared/chatModel'
+import { applyEvent, chatFromTranscript, emptyChat, formatDuration, limitsFromEvent, type ChatState } from '@shared/chatModel'
 import { claudeArgs, userLine } from '@main/chatManager'
 
 const run = (events: any[], start: ChatState = emptyChat()) => events.reduce((s, e) => applyEvent(s, e, 1000), start)
@@ -115,6 +115,8 @@ describe('chat manager protocol', () => {
     expect(fresh).toContain('--dangerously-skip-permissions')
     expect(fresh.slice(0, 6)).toEqual(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'])
     expect(claudeArgs('abc', true)).toEqual(expect.arrayContaining(['--resume', 'abc']))
+    // ARWCode pins its own model instead of inheriting the user's global default.
+    expect(fresh.join(' ')).toContain('--model opus')
   })
   it('writes one JSON line per prompt', () => {
     const l = userLine([{ type: 'text', text: 'hi' }])
@@ -175,5 +177,45 @@ describe('claude environment', () => {
     const { claudeEnv } = await import('@main/cleanEnv')
     const env = claudeEnv({ CLAUDE_CODE_CHILD_SESSION: '1', CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'x', ANTHROPIC_BASE_URL: 'http://127.0.0.1:8787', PATH: 'p' }, { ARW_TERMINAL_ID: 't' })
     expect(env).toEqual({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:8787', PATH: 'p', ARW_TERMINAL_ID: 't' })
+  })
+})
+
+describe('control requests', () => {
+  it('frames control_request lines the way Claude expects', async () => {
+    const { controlLine } = await import('@main/chatManager')
+    expect(JSON.parse(controlLine('r1', 'mcp_toggle', { serverName: 'headroom', enabled: false }))).toEqual({
+      type: 'control_request', request_id: 'r1', request: { subtype: 'mcp_toggle', serverName: 'headroom', enabled: false }
+    })
+    expect(controlLine('r2', 'interrupt').endsWith('\n')).toBe(true)
+  })
+  it('/model output from set_model shows as a command result', () => {
+    const s = run([{ type: 'user', uuid: 'm1', isReplay: true, message: { role: 'user', content: '<local-command-stdout>Set model to `sonnet (claude-sonnet-5-5)`</local-command-stdout>' } }])
+    expect(s.items.map(i => i.kind)).toEqual(['command'])
+    expect((s.items[0] as any).text).toContain('Set model to')
+  })
+})
+
+// Shapes copied from a real `claude -p --output-format stream-json --verbose` run (CLI 2026-11).
+describe('usage', () => {
+  it('reads both plan windows from rate_limit_event', () => {
+    const l = limitsFromEvent({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: 1793734200, rateLimitType: 'five_hour',
+      unifiedWindows: { five_hour: { utilization: 0.4, resetsAt: 1793734200, status: 'allowed' }, seven_day: { utilization: 0.2, resetsAt: 1794157200, status: 'allowed' } } } }, 5)
+    expect(l).toEqual({ fiveHour: { used: 0.4, resetsAt: 1793734200 }, sevenDay: { used: 0.2, resetsAt: 1794157200 }, ts: 5 })
+    expect(limitsFromEvent({ type: 'result' })).toBeNull()
+  })
+
+  it('tracks context from main-thread replies and cost/window from results', () => {
+    const s = run([
+      { type: 'system', subtype: 'init', session_id: 's', model: 'claude-opus-5-5[1m]' },
+      { type: 'assistant', message: { id: 'm1', content: [{ type: 'text', text: 'hi' }],
+        usage: { input_tokens: 2, cache_creation_input_tokens: 35310, cache_read_input_tokens: 100, output_tokens: 6 } } },
+      // A subagent's reply must not count as this conversation's context.
+      { type: 'assistant', parent_tool_use_id: 't1', message: { id: 'm2', content: [], usage: { input_tokens: 9, output_tokens: 9 } } },
+      { type: 'result', subtype: 'success', duration_ms: 10, total_cost_usd: 0.0082,
+        modelUsage: { 'claude-haiku-5-5': { contextWindow: 200000 }, 'claude-opus-5-5': { contextWindow: 1000000 } } }
+    ])
+    expect(s.contextTokens).toBe(35418)
+    expect(s.costUsd).toBe(0.0082)
+    expect(s.contextWindow).toBe(1000000)
   })
 })

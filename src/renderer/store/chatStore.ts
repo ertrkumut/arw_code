@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { applyEvent, chatFromTranscript, emptyChat, type ChatState } from '@shared/chatModel'
+import { applyEvent, chatFromTranscript, emptyChat, limitsFromEvent, type ChatState, type UsageLimits } from '@shared/chatModel'
 import { useApp } from './appStore'
 
 /**
@@ -20,6 +20,19 @@ interface ChatStore {
   exitTerminal: (termId: string) => Promise<void>
   /** Slash commands last reported by Claude (shared by all panes; cached across launches). */
   catalog: { commands: string[]; terminal: string[] }
+  /** In-chat popup for a /command (one at a time) */
+  dialog: { termId: string; kind: 'mcp' | 'model' | 'resume' } | null
+  openDialog: (termId: string, kind: 'mcp' | 'model' | 'resume') => void
+  closeDialog: () => void
+  /** Out-of-band request to Claude (mcp_status, set_model, mcp_toggle …). */
+  control: (termId: string, subtype: string, extra?: Record<string, unknown>) => Promise<any>
+  setModel: (termId: string, model: string) => Promise<void>
+  /** Continue another saved conversation in this pane. */
+  switchSession: (termId: string, sessionId: string) => Promise<void>
+  /** Account-wide plan usage (shared by every pane; remembered across launches). */
+  limits: UsageLimits | null
+  /** Pick up a fresher 5-hour reading from the Claude status line's cache, if there is one. */
+  refreshLimits: () => Promise<void>
 }
 
 const dataUrlBlock = (url: string) => {
@@ -27,7 +40,15 @@ const dataUrlBlock = (url: string) => {
   return m ? { type: 'image' as const, source: { type: 'base64' as const, media_type: m[1], data: m[2] } } : null
 }
 
+const LIMITS_KEY = 'arw.usageLimits'
+const loadLimits = (): UsageLimits | null => {
+  try { const l = JSON.parse(localStorage.getItem(LIMITS_KEY) ?? ''); if (l && typeof l.ts === 'number') return l } catch { /* none yet */ }
+  return null
+}
+const saveLimits = (l: UsageLimits) => { try { localStorage.setItem(LIMITS_KEY, JSON.stringify(l)) } catch { /* storage off */ } }
+
 let wired = false
+let lastModelEcho = 0
 
 const CATALOG_KEY = 'arw.slashCatalog'
 const loadCatalog = (): { commands: string[]; terminal: string[] } => {
@@ -40,8 +61,12 @@ export const useChat = create<ChatStore>((set, get) => {
     if (wired) return
     wired = true
     window.arw.chat.onEvent(({ id, event }) => {
+      // Plan usage is per account, so any pane's report updates every bar.
+      const lim = limitsFromEvent(event)
+      if (lim) { set({ limits: lim }); saveLimits(lim) }
       const cur = get().chats[id]
       if (!cur) return                                    // not shown in this window
+      if (event?.type === 'user' && /<local-command-stdout>Set model to/.test(JSON.stringify(event.message?.content ?? ''))) lastModelEcho = Date.now()
       const next = applyEvent(cur, event)
       if (next !== cur) set((st) => ({ chats: { ...st.chats, [id]: next } }))
       if (event?.type === 'system' && event.subtype === 'init' && Array.isArray(event.slash_commands)) {
@@ -63,6 +88,47 @@ export const useChat = create<ChatStore>((set, get) => {
     opened: {},
     terminal: {},
     catalog: loadCatalog(),
+    limits: loadLimits(),
+    refreshLimits: async () => {
+      let c: { pct: number; resetsAt: number; ts: number } | null = null
+      try { c = await window.arw.usageCache() } catch { return }
+      const cur = get().limits
+      if (!c || (cur && cur.ts >= c.ts)) return
+      // The status line only measures the 5-hour window; keep the weekly one we have.
+      const next: UsageLimits = { fiveHour: { used: c.pct / 100, resetsAt: c.resetsAt }, sevenDay: cur?.sevenDay ?? null, ts: c.ts }
+      set({ limits: next }); saveLimits(next)
+    },
+    dialog: null,
+    openDialog: (termId, kind) => set({ dialog: { termId, kind } }),
+    closeDialog: () => set({ dialog: null }),
+    control: (termId, subtype, extra) => window.arw.chat.control(termId, subtype, extra),
+    setModel: async (termId, model) => {
+      try {
+        const r = await window.arw.chat.control(termId, 'set_model', { model })
+        // Before the first message Claude prints nothing but this response, so record it here.
+        const name: string = r?.model ?? model
+        set((st) => {
+          const cur = st.chats[termId] ?? emptyChat()
+          const had = cur.items.some(i => i.kind === 'command' && i.text.startsWith('Set model to') && Date.now() - lastModelEcho < 2000)
+          return { chats: { ...st.chats, [termId]: { ...cur, model: name,
+            items: had ? cur.items : [...cur.items, { kind: 'command', id: `model-${Date.now()}`, text: `Set model to \`${name}\`` }] } } }
+        })
+      } catch (e: any) {
+        set((st) => ({ chats: { ...st.chats, [termId]: applyEvent(st.chats[termId] ?? emptyChat(), { type: 'arw_notice', tone: 'error', text: `Couldn't change the model: ${e?.message ?? e}` }) } }))
+      }
+    },
+    switchSession: async (termId, sessionId) => {
+      const r = await window.arw.chat.switchSession(termId, sessionId)
+      if (!r) return
+      set((st) => {
+        const cur = st.chats[termId] ?? emptyChat()
+        const hist = r.transcript ? chatFromTranscript(r.transcript) : emptyChat()
+        return { chats: { ...st.chats, [termId]: { ...cur, ...hist, model: cur.model ?? hist.model,
+          slashCommands: cur.slashCommands, terminalCommands: cur.terminalCommands, sessionId: r.sessionId } } }
+      })
+      useApp.getState().setTerminalSession(termId, r.sessionId)
+      useApp.getState().setStatus(termId, 'idle')
+    },
 
     enterTerminal: async (termId, command) => {
       if (get().terminal[termId]) return
@@ -115,6 +181,14 @@ export const useChat = create<ChatStore>((set, get) => {
       const t = text.trim()
       if (!t && !images.length) return
       if (/^\/clear\s*$/i.test(t)) return get().clear(termId)
+      // Commands with their own in-chat popup.
+      const m = /^\/([\w:.-]+)(?:\s+(.*))?$/s.exec(t)
+      if (m && !images.length) {
+        const name = m[1].toLowerCase(), arg = (m[2] ?? '').trim()
+        if (name === 'mcp') return get().openDialog(termId, 'mcp')
+        if (name === 'resume') return get().openDialog(termId, 'resume')
+        if (name === 'model') return arg ? get().setModel(termId, arg) : get().openDialog(termId, 'model')
+      }
       // Commands that need Claude's interactive screens run in the pane's terminal mode.
       const cmd = /^\/([\w:.-]+)/.exec(t)?.[1]
       if (cmd && !images.length && isTerminalCommand(cmd, get().catalog.terminal)) return get().enterTerminal(termId, t)
@@ -141,7 +215,7 @@ export const useChat = create<ChatStore>((set, get) => {
  * Commands with interactive screens (menus, pickers, editors) that the headless chat can't
  * show. Claude lists a few itself (`terminal_slash_commands`); the rest are known TUIs.
  */
-const TERMINAL_ONLY = new Set(['mcp', 'config', 'settings', 'login', 'logout', 'resume', 'permissions', 'allowed-tools', 'hooks',
+const TERMINAL_ONLY = new Set(['config', 'settings', 'login', 'logout', 'permissions', 'allowed-tools', 'hooks',
   'memory', 'doctor', 'status', 'ide', 'terminal-setup', 'vim', 'theme', 'export', 'plugin', 'plugins', 'agents',
   'statusline', 'color', 'focus', 'reload-plugins', 'bashes', 'tasks', 'rewind', 'add-dir', 'privacy-settings', 'upgrade'])
 
@@ -153,11 +227,11 @@ export function isTerminalCommand(name: string, reported: string[] = []): boolea
 /** Short descriptions for the built-in commands (skills / MCP prompts show their name only). */
 export const COMMAND_HELP: Record<string, string> = {
   clear: 'Start a new conversation', compact: 'Summarize the conversation to free up context',
-  context: 'Show context usage', cost: 'Show usage and cost', usage: 'Show plan usage', model: 'Change the model (e.g. /model sonnet)',
-  mcp: 'Manage MCP servers', config: 'Open settings', init: 'Create a CLAUDE.md for this project', review: 'Review a pull request',
+  context: 'Show context usage', cost: 'Show usage and cost', usage: 'Show plan usage', model: 'Pick a model (or /model sonnet)',
+  mcp: 'MCP servers: status, reconnect, enable/disable, sign in', config: 'Open settings', init: 'Create a CLAUDE.md for this project', review: 'Review a pull request',
   'security-review': 'Security review of pending changes', 'code-review': 'Review the current changes', agents: 'Manage subagents',
   memory: 'Edit Claude memory files', permissions: 'Manage tool permissions', hooks: 'Manage hooks', login: 'Sign in',
-  logout: 'Sign out', doctor: 'Check the Claude Code install', status: 'Account and system status', resume: 'Resume a past conversation',
+  logout: 'Sign out', doctor: 'Check the Claude Code install', status: 'Account and system status', resume: 'Continue a saved conversation in this pane',
   export: 'Export the conversation', plugin: 'Manage plugins', effort: 'Set thinking effort', fast: 'Toggle fast mode',
   rename: 'Rename the conversation', recap: 'Recap the conversation', 'output-style': 'Change the output style',
   ide: 'Connect to an IDE', 'add-dir': 'Add a working directory', rewind: 'Rewind the conversation', statusline: 'Set up the status line',

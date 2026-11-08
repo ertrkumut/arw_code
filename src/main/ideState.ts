@@ -1,5 +1,6 @@
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { DEFAULT_EDITOR_PREFS, type EditorPrefs } from '../shared/editorPrefs'
 
 /**
  * Editor/IDE state (theme, breakpoints, open tabs per project, panel sizes), kept in its
@@ -16,27 +17,48 @@ export interface IdePatch {
   tabs?: Record<string, { paths: string[]; active: string | null } | null>
   /** fileKey -> breakpoints of that file (null removes the file) */
   breakpoints?: Record<string, { path: string; lines: number[] } | null>
+  /** fileKey -> bookmarked lines of that file (null removes the file) */
+  bookmarks?: Record<string, { path: string; lines: number[] } | null>
+  /** Settings › Keymap: action id -> its keys (null resets the action to its default) */
+  keymap?: Record<string, string[] | null>
+  /** Settings › Editor (merged key by key) */
+  editorPrefs?: Partial<EditorPrefs>
 }
 
-export type IdeStateData = Required<Omit<IdePatch, 'tabs' | 'breakpoints'>> & {
+export type { EditorPrefs }
+export { DEFAULT_EDITOR_PREFS }
+
+export type IdeStateData = Required<Omit<IdePatch, 'tabs' | 'breakpoints' | 'bookmarks' | 'keymap' | 'editorPrefs'>> & {
   version: 1
   tabs: Record<string, { paths: string[]; active: string | null }>
   breakpoints: Record<string, { path: string; lines: number[] }>
+  bookmarks: Record<string, { path: string; lines: number[] }>
+  keymap: Record<string, string[]>
+  editorPrefs: EditorPrefs
 }
 
 export function emptyIdeState(): IdeStateData {
-  return { version: 1, themeId: 'oceanic', bottomHeight: 280, treeWidth: 280, treeOpen: true, tabs: {}, breakpoints: {} }
+  return {
+    version: 1, themeId: 'oceanic', bottomHeight: 280, treeWidth: 280, treeOpen: true, tabs: {}, breakpoints: {},
+    bookmarks: {}, keymap: {}, editorPrefs: { ...DEFAULT_EDITOR_PREFS }
+  }
 }
 
 /** Pure merge (exported for tests). */
 export function applyIdePatch(s: IdeStateData, p: IdePatch): IdeStateData {
-  const next: IdeStateData = { ...s, tabs: { ...s.tabs }, breakpoints: { ...s.breakpoints } }
+  const next: IdeStateData = {
+    ...s, tabs: { ...s.tabs }, breakpoints: { ...s.breakpoints }, bookmarks: { ...(s.bookmarks ?? {}) },
+    keymap: { ...(s.keymap ?? {}) }, editorPrefs: { ...DEFAULT_EDITOR_PREFS, ...(s.editorPrefs ?? {}) }
+  }
   if (p.themeId !== undefined) next.themeId = p.themeId
   if (p.bottomHeight !== undefined) next.bottomHeight = p.bottomHeight
   if (p.treeWidth !== undefined) next.treeWidth = p.treeWidth
   if (p.treeOpen !== undefined) next.treeOpen = p.treeOpen
   for (const [k, v] of Object.entries(p.tabs ?? {})) { if (v) next.tabs[k] = v; else delete next.tabs[k] }
   for (const [k, v] of Object.entries(p.breakpoints ?? {})) { if (v && v.lines.length) next.breakpoints[k] = v; else delete next.breakpoints[k] }
+  for (const [k, v] of Object.entries(p.bookmarks ?? {})) { if (v && v.lines.length) next.bookmarks[k] = v; else delete next.bookmarks[k] }
+  for (const [k, v] of Object.entries(p.keymap ?? {})) { if (v) next.keymap[k] = v; else delete next.keymap[k] }
+  if (p.editorPrefs) next.editorPrefs = { ...next.editorPrefs, ...p.editorPrefs }
   return next
 }
 
@@ -61,6 +83,9 @@ export function getIdeState(): IdeStateData {
     const f = file()
     if (existsSync(f)) state = { ...state, ...JSON.parse(readFileSync(f, 'utf8')), version: 1 }
   } catch { /* corrupt — start fresh */ }
+  state!.editorPrefs = { ...DEFAULT_EDITOR_PREFS, ...(state!.editorPrefs ?? {}) }
+  state!.bookmarks ??= {}
+  state!.keymap ??= {}
   return state!
 }
 
