@@ -4,3 +4,9 @@ dist/
 *.log
 .env
 *.tsbuildinfo
+
+# Claude Code / MemStack (local only)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
