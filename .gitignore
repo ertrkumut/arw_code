@@ -10,3 +10,19 @@ dist/
 CLAUDE.md
 CLAUDE.local.md
 .mcp.json
+
+# Build output / installers
+release/
+*.exe
+*.dmg
+*.msi
+*.blockmap
+*.AppImage
+*.deb
+*.zip
+*.7z
+*.pdb
+latest*.yml
+
+# Mac build workflow (generated on the Mac)
+.github/workflows/build-mac.yml
