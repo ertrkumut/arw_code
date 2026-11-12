@@ -62,6 +62,9 @@ const api = {
   openInExplorer: (path: string) => ipcRenderer.send(IPC.openPath, path),
   openExternal: (url: string) => ipcRenderer.send(IPC.openExternal, url),
   revealInExplorer: (path: string) => ipcRenderer.send(IPC.revealPath, path),
+  /** Open the folder of a path written in a chat (relative paths resolve against `cwd`). */
+  openPathFolder: (path: string, cwd?: string): Promise<'file' | 'folder' | 'missing'> =>
+    ipcRenderer.invoke(IPC.openPathFolder, { path, cwd }),
   fs: {
     readDir: (dir: string): Promise<DirEntry[]> => ipcRenderer.invoke(IPC.fsReadDir, dir),
     listFiles: (root: string): Promise<string[]> => ipcRenderer.invoke(IPC.fsListFiles, root),

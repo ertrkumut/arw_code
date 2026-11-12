@@ -1,5 +1,5 @@
 import { ipcMain, dialog, clipboard, shell, nativeImage } from 'electron'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -14,6 +14,7 @@ import { BrowserWindow } from 'electron'
 import type { WindowManager } from './windows'
 import { ChatManager, readTranscript, takeReportedSession, type ContentBlock } from './chatManager'
 import { CodexChatManager, readCodexTranscript } from './codexChat'
+import { resolveChatPath } from './chatPaths'
 import { app } from 'electron'
 import { AgentEditTracker } from './agentEdits'
 import { getIndex } from './codeIndex'
@@ -129,6 +130,16 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   ipcMain.on(IPC.fsWatch, (_e, root: string) => tree.watch(root))
   ipcMain.on(IPC.fsUnwatch, (_e, root: string) => tree.unwatch(root))
   ipcMain.on(IPC.revealPath, (_e, p: string) => shell.showItemInFolder(p))
+  // A path clicked in a chat: a file opens its folder with it selected, a folder opens itself.
+  ipcMain.handle(IPC.openPathFolder, (_e, p: { path: string; cwd?: string }) => {
+    const full = resolveChatPath(p.path, p.cwd)
+    if (!full) return 'missing'
+    let isDir = false
+    try { isDir = statSync(full).isDirectory() } catch { return 'missing' }
+    if (isDir) void shell.openPath(full)
+    else shell.showItemInFolder(full)
+    return isDir ? 'folder' : 'file'
+  })
 
   // Editor
   ipcMain.handle(IPC.fsReadFile, (_e, p: string) => readTextFile(p))

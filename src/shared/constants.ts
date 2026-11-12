@@ -42,6 +42,7 @@ export const IPC = {
   fsUnwatch: 'fs:unwatch',                 // renderer -> main: stop watching a project root
   fsChanged: 'fs:changed',                 // main -> renderer: { root, dirs } whose listings changed
   revealPath: 'shell:revealPath',          // renderer -> main: select a file in the OS file manager
+  openPathFolder: 'shell:openPathFolder',  // renderer -> main (invoke): open the folder of a path typed in chat
   fsListFiles: 'fs:listFiles',             // renderer -> main (invoke): all files under a root (Go to File)
   fsReadFile: 'fs:readFile',               // renderer -> main (invoke): text file for the editor
   fsWriteFile: 'fs:writeFile',             // renderer -> main (invoke): save an editor buffer

@@ -4,6 +4,7 @@ import { useApp } from '../../store/appStore'
 import { useZoom, attachWheelZoom } from '../../store/zoomStore'
 import { emptyChat, formatDuration, type ChatItem } from '@shared/chatModel'
 import { Markdown } from './Markdown'
+import { PathText } from './PathLinks'
 import { ToolCard } from './ToolCard'
 import { ChatDialogs } from './ChatDialogs'
 import { UsageBar } from './UsageBar'
@@ -257,10 +258,10 @@ export function ChatView({ termId, cwd, project, resume, agent }: {
                     ))}
                   </div>
                 )}
-                {it.text && <div className="ch-user-text">{it.text}</div>}
+                {it.text && <div className="ch-user-text"><PathText text={it.text} cwd={cwd} /></div>}
               </div>
             )
-            case 'text': return <Markdown key={it.id} text={it.text} className="md ch-text" />
+            case 'text': return <Markdown key={it.id} text={it.text} className="md ch-text" cwd={cwd} />
             case 'thinking': return <Thinking key={it.id} text={it.text} ms={it.ms} />
             case 'tool': return <ToolCard key={it.id} tool={it} children={childrenOf.get(it.id)} onOpenFile={openFile} />
             case 'turn': return (
@@ -269,12 +270,12 @@ export function ChatView({ termId, cwd, project, resume, agent }: {
               </div>
             )
             case 'notice': return <div key={it.id} className={`ch-notice ${it.tone}`}>{it.text}</div>
-            case 'command': return <pre key={it.id} className="ch-cmd-out">{it.text}</pre>
+            case 'command': return <pre key={it.id} className="ch-cmd-out"><PathText text={it.text} cwd={cwd} /></pre>
             case 'compacted': return <div key={it.id} className="ch-turn">Conversation compacted</div>
           }
         })}
         {chat.busy && chat.liveThinking && <div className="ch-think live"><div className="ch-think-row">Thinking…</div><div className="ch-think-body">{chat.liveThinking.slice(-600)}</div></div>}
-        {chat.busy && chat.liveText && <Markdown text={chat.liveText} className="md ch-text live" />}
+        {chat.busy && chat.liveText && <Markdown text={chat.liveText} className="md ch-text live" cwd={cwd} />}
         {chat.busy && <Working since={chat.turnStartedAt} thinking={chat.liveThinking} />}
       </div>
 
