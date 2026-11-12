@@ -11,10 +11,9 @@ import { ImageStrip } from './ImageStrip'
 import { ChatView } from './chat/ChatView'
 import { useChat } from '../store/chatStore'
 import type { TermState } from '@shared/types'
-import type { AgentId } from '@shared/agents'
+import { isChatAgent, type AgentId } from '@shared/agents'
 
-/** Claude panes are chats; every other agent is a real terminal. */
-export const isChatAgent = (agent?: AgentId) => (agent ?? 'claude') === 'claude'
+export { isChatAgent }
 
 /**
  * Terminal mode of a chat pane: the real interactive `claude`, on the same conversation.
@@ -22,7 +21,8 @@ export const isChatAgent = (agent?: AgentId) => (agent ?? 'claude') === 'claude'
  */
 function TuiBody({ termId, cwd, session }: { termId: string; cwd: string; session: { resume?: string; sessionId?: string; command?: string } }) {
   const tuiId = `${termId}:tui`
-  const ref = useTerminalIO(tuiId, cwd, 'claude', session)
+  const agent = useChat(s => s.agents[termId]) ?? 'claude'
+  const ref = useTerminalIO(tuiId, cwd, agent, session)
   useEffect(() => {
     // Type the command only once Claude's input prompt ("❯ …") is up. Never type blind: a
     // startup dialog (folder trust, login) also shows "❯" but asks to confirm, and would
@@ -37,8 +37,9 @@ function TuiBody({ termId, cwd, session }: { termId: string; cwd: string; sessio
       if (typed) return
       seen = (seen + data.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')).slice(-3000)
       clearTimeout(timer)
-      const dialog = /Enter to confirm|Esc to cancel|trust this folder|Select (an )?option/i.test(seen.slice(-1500))
-      if (dialog || !/❯/.test(seen)) return
+      const dialog = /Enter to confirm|Esc to cancel|trust this folder|trust the (contents|files)|Select (an )?option|Sign in with/i.test(seen.slice(-1500))
+      // Codex's composer prompt is "›" rather than Claude's "❯".
+      if (dialog || !(agent === 'codex' ? /[❯›]/ : /❯/).test(seen)) return
       timer = window.setTimeout(() => {
         if (typed) return
         typed = true
@@ -51,7 +52,7 @@ function TuiBody({ termId, cwd, session }: { termId: string; cwd: string; sessio
   return <div ref={ref} style={{ flex: 1, minHeight: 0, padding: '4px 8px 6px', background: 'var(--bg-terminal)' }} />
 }
 
-function ChatBody({ projectId, termId, cwd }: { projectId: string; termId: string; cwd: string }) {
+function ChatBody({ projectId, termId, cwd, agent }: { projectId: string; termId: string; cwd: string; agent?: AgentId }) {
   const project = useApp(s => s.projects.find(p => p.id === projectId))
   const tui = useChat(s => s.terminal[termId])
   // A pane opened from the history dialog continues that session; otherwise reopen this
@@ -59,7 +60,7 @@ function ChatBody({ projectId, termId, cwd }: { projectId: string; termId: strin
   const [resume] = useState(() => useApp.getState().takeResume(termId)
     ?? project?.terminals.find(t => t.id === termId)?.sessionId)
   if (tui) return <TuiBody termId={termId} cwd={cwd} session={tui} />
-  return <ChatView termId={termId} cwd={cwd} resume={resume}
+  return <ChatView termId={termId} cwd={cwd} resume={resume} agent={agent}
     project={project ? { id: project.id, name: project.name, path: project.path } : null} />
 }
 
@@ -69,12 +70,13 @@ function PaneBody({ termId, cwd, agent }: { termId: string; cwd: string; agent?:
 }
 
 /** Chat ⇄ Terminal for a Claude pane (same conversation either way). */
-function ModeToggle({ termId }: { termId: string }) {
+function ModeToggle({ termId, agent }: { termId: string; agent?: AgentId }) {
   const inTerminal = useChat(s => !!s.terminal[termId])
   const busy = useChat(s => !!s.chats[termId]?.busy)
+  const who = agent === 'codex' ? 'Codex' : 'Claude'
   return (
     <span className={`pane-btn pane-mode${inTerminal ? ' on' : ''}`}
-      title={inTerminal ? 'Back to chat' : busy ? 'Wait for Claude to finish (or stop it) first' : 'Open this conversation in the Claude terminal (for /mcp, /config, …)'}
+      title={inTerminal ? 'Back to chat' : busy ? `Wait for ${who} to finish (or stop it) first` : `Open this conversation in the ${who} terminal (for /mcp, /config, …)`}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation()
@@ -162,7 +164,7 @@ export function TerminalPane({ projectId, termId, name, color, cwd, agent, focus
           <span className="pane-btn" title={maximized ? 'Restore' : 'Maximize'}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onToggleMax() }}>{maximized ? '❐' : '▢'}</span>
-          {isChatAgent(agent) && <ModeToggle termId={termId} />}
+          {isChatAgent(agent) && <ModeToggle termId={termId} agent={agent} />}
           {isChatAgent(agent) && (
             <span className="pane-btn" title="New conversation (/clear)"
               onMouseDown={(e) => e.stopPropagation()}
@@ -195,7 +197,7 @@ export function TerminalPane({ projectId, termId, name, color, cwd, agent, focus
         </div>
       ) : (
         <>
-          {isChatAgent(agent) ? <ChatBody projectId={projectId} termId={termId} cwd={cwd} /> : (
+          {isChatAgent(agent) ? <ChatBody projectId={projectId} termId={termId} cwd={cwd} agent={agent} /> : (
             <>
               <ImageStrip termId={termId} />
               <PaneBody key={attempt} termId={termId} cwd={cwd} agent={agent} />

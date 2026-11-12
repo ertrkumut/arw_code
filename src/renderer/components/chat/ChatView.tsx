@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useChat, COMMAND_HELP, isTerminalCommand } from '../../store/chatStore'
+import { useChat, COMMAND_HELP, isTerminalCommand, CODEX_COMMAND_HELP, isCodexTerminalCommand } from '../../store/chatStore'
 import { useApp } from '../../store/appStore'
 import { useZoom, attachWheelZoom } from '../../store/zoomStore'
 import { emptyChat, formatDuration, type ChatItem } from '@shared/chatModel'
@@ -11,6 +11,7 @@ import { ImageStrip } from '../ImageStrip'
 import { fuzzyScore } from '../../ide/fuzzy'
 import { FileIcon } from '../FileIcons'
 import { baseName } from '../../ide/paths'
+import type { AgentId } from '@shared/agents'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 const NONE: string[] = []
@@ -48,12 +49,15 @@ function useFileIndex(cwd: string) {
   return { files, load }
 }
 
-export function ChatView({ termId, cwd, project, resume }: {
+export function ChatView({ termId, cwd, project, resume, agent }: {
   termId: string
   cwd: string
   project: { id: string; name: string; path: string } | null
   resume?: string
+  agent?: AgentId
 }) {
+  const codex = agent === 'codex'
+  const who = codex ? 'Codex' : 'Claude'
   const chat = useChat(s => s.chats[termId]) ?? emptyChat()
   const pending = useApp(s => s.pendingImages[termId] ?? NONE)
   const [draft, setDraft] = useState('')
@@ -66,7 +70,7 @@ export function ChatView({ termId, cwd, project, resume }: {
   const stick = useRef(true)
   const index = useFileIndex(cwd)
 
-  useEffect(() => { void useChat.getState().open(termId, cwd, resume) }, [termId, cwd, resume])
+  useEffect(() => { void useChat.getState().open(termId, cwd, resume, codex ? 'codex' : 'claude') }, [termId, cwd, resume, codex])
 
   // Ctrl+wheel zooms the chat text; the size drives every chat font via --ch-fs.
   const chatFs = useZoom(s => s.chat)
@@ -141,6 +145,14 @@ export function ChatView({ termId, cwd, project, resume }: {
   // "/" palette: Claude's reported commands (skills, MCP prompts…) + the known built-ins.
   const slashResults = useMemo(() => {
     if (!slash) return []
+    if (codex) {
+      // Codex's own commands, in-chat ones first.
+      const all = Object.keys(CODEX_COMMAND_HELP).filter(c => c !== 'clear')
+      const q = slash.query.toLowerCase()
+      return q
+        ? all.map(c => ({ c, s: c.startsWith(q) ? 1000 - c.length : fuzzyScore(q, c) })).filter(x => x.s >= 0).sort((a, b) => b.s - a.s).map(x => x.c)
+        : all
+    }
     const reported = chat.slashCommands.length ? chat.slashCommands : catalog.commands
     const all = [...new Set(['clear', 'compact', 'context', 'cost', 'model', 'mcp', ...Object.keys(COMMAND_HELP), ...reported])]
       .filter(c => !c.startsWith('__'))
@@ -149,7 +161,7 @@ export function ChatView({ termId, cwd, project, resume }: {
       ? all.map(c => ({ c, s: c.toLowerCase().startsWith(q) ? 1000 - c.length : fuzzyScore(q, c) })).filter(x => x.s >= 0).sort((a, b) => b.s - a.s).map(x => x.c)
       : all.sort((a, b) => Number(!COMMAND_HELP[a]) - Number(!COMMAND_HELP[b]) || a.localeCompare(b))
     return ranked.slice(0, 40)
-  }, [slash, chat.slashCommands, catalog.commands])
+  }, [slash, chat.slashCommands, catalog.commands, codex])
 
   const pickSlash = (cmd: string) => {
     const text = `/${cmd} `
@@ -225,13 +237,13 @@ export function ChatView({ termId, cwd, project, resume }: {
   const empty = top.length === 0 && !chat.busy
 
   return (
-    <div className="ch-root" ref={rootRef} style={{ '--ch-fs': `${chatFs}px` } as React.CSSProperties}
+    <div className={`ch-root${codex ? ' ch-codex' : ''}`} ref={rootRef} style={{ '--ch-fs': `${chatFs}px` } as React.CSSProperties}
       onMouseDown={(e) => { if (e.target === e.currentTarget) inputRef.current?.focus() }}>
       <div className="ch-list scroll-slim" ref={listRef} onScroll={onScroll}>
         {empty && (
           <div className="ch-empty">
             <div className="ch-empty-title">What should we build?</div>
-            <div className="ch-empty-sub">Claude works in <b>{baseName(cwd)}</b>. Type <kbd>@</kbd> to mention a file, paste images with <kbd>Ctrl+V</kbd>.</div>
+            <div className="ch-empty-sub">{who} works in <b>{baseName(cwd)}</b>. Type <kbd>@</kbd> to mention a file, paste images with <kbd>Ctrl+V</kbd>.</div>
           </div>
         )}
         {top.map(it => {
@@ -274,8 +286,9 @@ export function ChatView({ termId, cwd, project, resume }: {
               <div key={c} className={`goto-row${i === slash.idx ? ' active' : ''}`}
                 onMouseDown={(e) => { e.preventDefault(); pickSlash(c) }}>
                 <span className="ch-slash-name">/{c}</span>
-                <span className="goto-dir">{COMMAND_HELP[c] ?? (c.startsWith('mcp__') ? 'MCP prompt' : c.includes(':') ? 'Plugin skill' : 'Skill / command')}</span>
-                {isTerminalCommand(c, chat.terminalCommands.length ? chat.terminalCommands : catalog.terminal) && <span className="ch-slash-term" title="Opens in the Claude terminal">›_ terminal</span>}
+                <span className="goto-dir">{codex ? CODEX_COMMAND_HELP[c] : COMMAND_HELP[c] ?? (c.startsWith('mcp__') ? 'MCP prompt' : c.includes(':') ? 'Plugin skill' : 'Skill / command')}</span>
+                {(codex ? isCodexTerminalCommand(c) : isTerminalCommand(c, chat.terminalCommands.length ? chat.terminalCommands : catalog.terminal))
+                  && <span className="ch-slash-term" title={`Opens in the ${who} terminal`}>›_ terminal</span>}
               </div>
             ))}
           </div>
@@ -294,10 +307,10 @@ export function ChatView({ termId, cwd, project, resume }: {
         <ImageStrip termId={termId} />
         <div className={`ch-input-box${chat.busy ? ' busy' : ''}`}>
           <textarea ref={inputRef} className="ch-input" rows={1} value={draft} spellCheck={false}
-            placeholder={chat.busy ? 'Claude is working — your message will be sent after this step' : 'Ask anything, @ to mention a file'}
+            placeholder={chat.busy ? `${who} is working — your message will be sent after this step` : `Ask ${who} anything, @ to mention a file`}
             onChange={onChange} onKeyDown={onKeyDown} onPaste={onPaste} />
           <div className="ch-input-bar">
-            <span className="ch-model" title="Model">{chat.model ?? 'Claude Code'}</span>
+            <span className="ch-model" title="Model">{codex ? `Codex${chat.model ? ' · ' + chat.model : ''}` : chat.model ?? 'Claude Code'}</span>
             <span style={{ flex: 1 }} />
             {chat.busy && (
               <button className="ch-stop" title="Stop (Esc)" onClick={() => useChat.getState().interrupt(termId)}>
@@ -309,7 +322,7 @@ export function ChatView({ termId, cwd, project, resume }: {
             </button>
           </div>
         </div>
-        <UsageBar chat={chat} />
+        <UsageBar chat={chat} codex={codex} />
       </div>
     </div>
   )

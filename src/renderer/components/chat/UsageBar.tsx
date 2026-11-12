@@ -30,16 +30,17 @@ function Meter({ label, title, win, now }: { label: string; title: string; win: 
 }
 
 /** Plan usage, context fill and cost under the chat composer — the chat's take on the terminal status line. */
-export function UsageBar({ chat }: { chat: ChatState }) {
-  const limits = useChat(s => s.limits)
+export function UsageBar({ chat, codex }: { chat: ChatState; codex?: boolean }) {
+  // Codex has its own account and limits (read from its session files after each turn).
+  const limits = useChat(s => (codex ? s.codexLimits : s.limits))
   const [now, setNow] = useState(Date.now())
 
   // Re-read the status line's cache and re-evaluate reset times every 30s.
   useEffect(() => {
-    void useChat.getState().refreshLimits()
-    const t = setInterval(() => { setNow(Date.now()); void useChat.getState().refreshLimits() }, 30_000)
+    if (!codex) void useChat.getState().refreshLimits()
+    const t = setInterval(() => { setNow(Date.now()); if (!codex) void useChat.getState().refreshLimits() }, 30_000)
     return () => clearInterval(t)
-  }, [])
+  }, [codex])
 
   const ctx = chat.contextTokens
   const win = chat.contextWindow
@@ -57,11 +58,13 @@ export function UsageBar({ chat }: { chat: ChatState }) {
         <span className="ub-val">{ctx != null ? tokens(ctx) : '--'}</span>
         {win ? <span className="ub-dim">/ {tokens(win)}</span> : null}
       </span>
-      <span className="ub-sep" />
-      <span className="ub-item" title="Cost of this chat session so far">
-        <span className="ub-label">Cost</span>
-        <span className="ub-val cost">{chat.costUsd != null ? `$${chat.costUsd.toFixed(2)}` : '--'}</span>
-      </span>
+      {!codex && <>
+        <span className="ub-sep" />
+        <span className="ub-item" title="Cost of this chat session so far">
+          <span className="ub-label">Cost</span>
+          <span className="ub-val cost">{chat.costUsd != null ? `$${chat.costUsd.toFixed(2)}` : '--'}</span>
+        </span>
+      </>}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { applyEvent, chatFromTranscript, emptyChat, limitsFromEvent, type ChatState, type UsageLimits } from '@shared/chatModel'
 import { useApp } from './appStore'
+import type { AgentId } from '@shared/agents'
 
 /**
  * Chats of Claude panes, keyed by terminal id. Every window that shows a chat (main grid
@@ -10,7 +11,9 @@ interface ChatStore {
   chats: Record<string, ChatState>
   /** termId -> open() in flight / done */
   opened: Record<string, boolean>
-  open: (termId: string, cwd: string, resume?: string) => Promise<void>
+  /** Which CLI each chat pane talks to (Claude unless opened as Codex). */
+  agents: Record<string, AgentId>
+  open: (termId: string, cwd: string, resume?: string, agent?: AgentId) => Promise<void>
   send: (termId: string, text: string, images: string[]) => Promise<void>
   interrupt: (termId: string) => void
   clear: (termId: string) => Promise<void>
@@ -27,10 +30,14 @@ interface ChatStore {
   /** Out-of-band request to Claude (mcp_status, set_model, mcp_toggle …). */
   control: (termId: string, subtype: string, extra?: Record<string, unknown>) => Promise<any>
   setModel: (termId: string, model: string) => Promise<void>
+  /** Codex model / reasoning effort for this pane's next prompts (undefined = leave as is). */
+  setCodexModel: (termId: string, model?: string, effort?: string, quiet?: boolean) => Promise<void>
   /** Continue another saved conversation in this pane. */
   switchSession: (termId: string, sessionId: string) => Promise<void>
   /** Account-wide plan usage (shared by every pane; remembered across launches). */
   limits: UsageLimits | null
+  /** Codex plan usage (its own account and limits, so kept apart from Claude's). */
+  codexLimits: UsageLimits | null
   /** Pick up a fresher 5-hour reading from the Claude status line's cache, if there is one. */
   refreshLimits: () => Promise<void>
 }
@@ -41,11 +48,34 @@ const dataUrlBlock = (url: string) => {
 }
 
 const LIMITS_KEY = 'arw.usageLimits'
-const loadLimits = (): UsageLimits | null => {
-  try { const l = JSON.parse(localStorage.getItem(LIMITS_KEY) ?? ''); if (l && typeof l.ts === 'number') return l } catch { /* none yet */ }
+const CODEX_LIMITS_KEY = 'arw.codexUsageLimits'
+const loadLimits = (key = LIMITS_KEY): UsageLimits | null => {
+  try { const l = JSON.parse(localStorage.getItem(key) ?? ''); if (l && typeof l.ts === 'number') return l } catch { /* none yet */ }
   return null
 }
-const saveLimits = (l: UsageLimits) => { try { localStorage.setItem(LIMITS_KEY, JSON.stringify(l)) } catch { /* storage off */ } }
+const saveLimits = (l: UsageLimits, key = LIMITS_KEY) => { try { localStorage.setItem(key, JSON.stringify(l)) } catch { /* storage off */ } }
+
+/** Set inside the store: keeps the newest Codex limits reading (shared by all Codex panes). */
+let setCodexLimits: (l: UsageLimits) => void = () => {}
+
+/** Reasoning efforts Codex accepts (mirrors main/codexChat.ts). */
+export const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh']
+
+/** Last Codex model / effort picked, used for new Codex panes too. */
+const CODEX_MODEL_KEY = 'arw.codexModel'
+const loadCodexModel = (): { model?: string; effort?: string } => {
+  try { return JSON.parse(localStorage.getItem(CODEX_MODEL_KEY) ?? '{}') ?? {} } catch { return {} }
+}
+const codexModelLabel = (r: { model?: string | null; effort?: string | null }) =>
+  [r.model ?? 'default model', r.effort ? `${r.effort} reasoning` : ''].filter(Boolean).join(' · ')
+
+/** What Codex's /init asks for: an AGENTS.md for the repo. */
+const CODEX_INIT_PROMPT = `Generate a file named AGENTS.md that serves as a contributor guide for this repository.
+Look at the repository structure, build/test tooling and code conventions first. Keep it concise (200-400 words) and use Markdown headings, e.g.:
+Project Structure & Module Organization, Build Test & Development Commands, Coding Style & Naming Conventions, Testing Guidelines, Commit & Pull Request Guidelines.
+Use real commands and paths from this repo. If an AGENTS.md already exists, improve it instead of replacing what's still accurate.`
+
+let notice: (termId: string, text: string, tone?: 'info' | 'error') => void = () => {}
 
 let wired = false
 let lastModelEcho = 0
@@ -57,6 +87,13 @@ const loadCatalog = (): { commands: string[]; terminal: string[] } => {
 }
 
 export const useChat = create<ChatStore>((set, get) => {
+  setCodexLimits = (l) => {
+    const cur = get().codexLimits
+    if (cur && cur.ts > l.ts) return                   // an older session file's reading
+    set({ codexLimits: l }); saveLimits(l, CODEX_LIMITS_KEY)
+  }
+  notice = (termId, text, tone = 'error') => set((st) => ({ chats: { ...st.chats,
+    [termId]: applyEvent(st.chats[termId] ?? emptyChat(), { type: 'arw_notice', tone, text }) } }))
   const wire = () => {
     if (wired) return
     wired = true
@@ -64,6 +101,7 @@ export const useChat = create<ChatStore>((set, get) => {
       // Plan usage is per account, so any pane's report updates every bar.
       const lim = limitsFromEvent(event)
       if (lim) { set({ limits: lim }); saveLimits(lim) }
+      if (event?.type === 'arw_codex_usage' && event.limits) setCodexLimits(event.limits)
       const cur = get().chats[id]
       if (!cur) return                                    // not shown in this window
       if (event?.type === 'user' && /<local-command-stdout>Set model to/.test(JSON.stringify(event.message?.content ?? ''))) lastModelEcho = Date.now()
@@ -86,9 +124,11 @@ export const useChat = create<ChatStore>((set, get) => {
   return {
     chats: {},
     opened: {},
+    agents: {},
     terminal: {},
     catalog: loadCatalog(),
     limits: loadLimits(),
+    codexLimits: loadLimits(CODEX_LIMITS_KEY),
     refreshLimits: async () => {
       let c: { pct: number; resetsAt: number; ts: number } | null = null
       try { c = await window.arw.usageCache() } catch { return }
@@ -102,6 +142,20 @@ export const useChat = create<ChatStore>((set, get) => {
     openDialog: (termId, kind) => set({ dialog: { termId, kind } }),
     closeDialog: () => set({ dialog: null }),
     control: (termId, subtype, extra) => window.arw.chat.control(termId, subtype, extra),
+    setCodexModel: async (termId, model, effort, quiet) => {
+      try {
+        const r = await window.arw.chat.control(termId, 'set_model', { model, effort })
+        try { localStorage.setItem(CODEX_MODEL_KEY, JSON.stringify({ model: r.model ?? undefined, effort: r.effort ?? undefined })) } catch { /* storage off */ }
+        const label = codexModelLabel(r)
+        set((st) => {
+          const cur = st.chats[termId] ?? emptyChat()
+          return { chats: { ...st.chats, [termId]: { ...cur, model: r.model || r.effort ? label : null,
+            items: quiet ? cur.items : [...cur.items, { kind: 'command', id: `model-${Date.now()}`, text: `Codex will use ${label} from the next message` }] } } }
+        })
+      } catch (e: any) {
+        notice(termId, `Couldn't change the model: ${e?.message ?? e}`)
+      }
+    },
     setModel: async (termId, model) => {
       try {
         const r = await window.arw.chat.control(termId, 'set_model', { model })
@@ -150,15 +204,16 @@ export const useChat = create<ChatStore>((set, get) => {
         return { terminal: rest, chats: { ...st.chats, [termId]: { ...cur, ...hist, model: cur.model ?? hist.model,
           slashCommands: cur.slashCommands, terminalCommands: cur.terminalCommands, sessionId: r.sessionId } } }
       })
-      if (r) useApp.getState().setTerminalSession(termId, r.sessionId)
+      if (r?.sessionId) useApp.getState().setTerminalSession(termId, r.sessionId)
     },
 
-    open: async (termId, cwd, resume) => {
+    open: async (termId, cwd, resume, agent = 'claude') => {
       wire()
       if (get().opened[termId]) return
-      set((st) => ({ opened: { ...st.opened, [termId]: true }, chats: { ...st.chats, [termId]: st.chats[termId] ?? emptyChat() } }))
+      set((st) => ({ opened: { ...st.opened, [termId]: true }, agents: { ...st.agents, [termId]: agent },
+        chats: { ...st.chats, [termId]: st.chats[termId] ?? emptyChat() } }))
       try {
-        const r = await window.arw.chat.open(termId, cwd, resume)
+        const r = await window.arw.chat.open(termId, cwd, resume, agent)
         const history = r.transcript ? chatFromTranscript(r.transcript) : emptyChat()
         // Keep anything that streamed in while the transcript loaded.
         set((st) => {
@@ -171,7 +226,16 @@ export const useChat = create<ChatStore>((set, get) => {
             items: [...history.items, ...live.items.filter(i => !ids.has(i.id))]
           } } }
         })
-        useApp.getState().setTerminalSession(termId, r.sessionId)
+        if (r.sessionId) useApp.getState().setTerminalSession(termId, r.sessionId)
+        if (agent === 'codex') {
+          const saved = loadCodexModel()
+          if (saved.model || saved.effort) await get().setCodexModel(termId, saved.model, saved.effort, true)
+          // Show the last known limits / context right away, before the first message.
+          get().control(termId, 'get_usage').then((u: any) => {
+            if (u?.limits) setCodexLimits(u.limits)
+            set((st) => ({ chats: { ...st.chats, [termId]: applyEvent(st.chats[termId] ?? emptyChat(), { type: 'arw_codex_usage', ...u }) } }))
+          }).catch(() => { /* no sessions yet */ })
+        }
       } catch (e: any) {
         set((st) => ({ chats: { ...st.chats, [termId]: applyEvent(st.chats[termId] ?? emptyChat(), { type: 'arw_notice', tone: 'error', text: `Couldn't open the chat: ${e?.message ?? e}` }) } }))
       }
@@ -181,6 +245,39 @@ export const useChat = create<ChatStore>((set, get) => {
       const t = text.trim()
       if (!t && !images.length) return
       if (/^\/clear\s*$/i.test(t)) return get().clear(termId)
+      if (get().agents[termId] === 'codex') {
+        const cm = /^\/([\w:.-]+)(?:\s+(.*))?$/s.exec(t)
+        if (cm && !images.length) {
+          const name = cm[1].toLowerCase(), arg = (cm[2] ?? '').trim()
+          const run = (subtype: string, extra?: Record<string, unknown>) => get().control(termId, subtype, extra)
+            .catch((e: any) => notice(termId, `/${name}: ${e?.message ?? e}`))
+          switch (name) {
+            case 'new': return get().clear(termId)
+            case 'model': {
+              if (!arg) return get().openDialog(termId, 'model')
+              // "/model gpt-5.5 high", "/model high", "/model default"
+              const parts = arg.split(/\s+/)
+              const effort = parts.find(p => CODEX_EFFORTS.includes(p.toLowerCase()))
+              const model = parts.find(p => p !== effort)
+              return get().setCodexModel(termId, model, effort)
+            }
+            case 'review': return void run('review', { prompt: arg })
+            case 'diff': case 'mcp': case 'status': case 'login': case 'logout': case 'usage': return void run(name)
+            case 'init': {
+              window.arw.chat.send(termId, [{ type: 'text', text: CODEX_INIT_PROMPT + (arg ? `\n\nAlso: ${arg}` : '') }], { text: t, images: [] })
+              return
+            }
+          }
+          // Anything else needs Codex's own interactive screens: run it in terminal mode.
+          return get().enterTerminal(termId, t)
+        }
+        useApp.getState().namePaneFromPrompt(termId, t)
+        window.arw.chat.send(termId, [
+          ...images.map(dataUrlBlock).filter((b): b is NonNullable<typeof b> => !!b),
+          ...(t ? [{ type: 'text' as const, text: t }] : [])
+        ], { text: t, images })
+        return
+      }
       // Commands with their own in-chat popup.
       const m = /^\/([\w:.-]+)(?:\s+(.*))?$/s.exec(t)
       if (m && !images.length) {
@@ -205,7 +302,7 @@ export const useChat = create<ChatStore>((set, get) => {
     clear: async (termId) => {
       const r = await window.arw.chat.reset(termId)
       set((st) => ({ chats: { ...st.chats, [termId]: { ...emptyChat(), sessionId: r?.sessionId ?? null, model: st.chats[termId]?.model ?? null } } }))
-      if (r) useApp.getState().setTerminalSession(termId, r.sessionId)
+      if (r?.sessionId) useApp.getState().setTerminalSession(termId, r.sessionId)
       useApp.getState().setStatus(termId, 'idle')
     }
   }
@@ -237,3 +334,20 @@ export const COMMAND_HELP: Record<string, string> = {
   ide: 'Connect to an IDE', 'add-dir': 'Add a working directory', rewind: 'Rewind the conversation', statusline: 'Set up the status line',
   loop: 'Run a prompt on an interval', schedule: 'Schedule a cloud agent', insights: 'Session insights', simplify: 'Clean up changed code'
 }
+
+/**
+ * Codex's slash commands. The first group runs right in the chat; the rest need Codex's
+ * interactive screens and open the pane's Codex terminal with the command typed.
+ */
+export const CODEX_COMMAND_HELP: Record<string, string> = {
+  model: 'Pick a model and reasoning effort (or /model gpt-5.5 high)', new: 'Start a new conversation',
+  clear: 'Start a new conversation', review: 'Review uncommitted changes (or /review <what to check>)',
+  init: 'Create an AGENTS.md with instructions for Codex', diff: 'Show the git diff, including untracked files',
+  mcp: 'List configured MCP servers', status: 'Account, model and session info', login: 'Sign in to Codex (opens the browser)',
+  logout: 'Sign out of Codex', usage: 'Plan limits (5-hour and weekly) and context use',
+  compact: 'Summarize the conversation to free up context', resume: 'Continue a saved Codex chat',
+  fork: 'Fork the current chat', rename: 'Rename the current thread', approvals: 'Choose what Codex can do without asking',
+  permissions: 'Choose what Codex can do without asking', prompts: 'Saved prompts and custom commands'
+}
+const CODEX_IN_CHAT = new Set(['model', 'new', 'clear', 'review', 'init', 'diff', 'mcp', 'status', 'login', 'logout', 'usage'])
+export const isCodexTerminalCommand = (name: string) => !CODEX_IN_CHAT.has(name.toLowerCase())

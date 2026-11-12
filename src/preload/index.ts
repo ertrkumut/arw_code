@@ -123,8 +123,8 @@ const api = {
     },
   },
   chat: {
-    open: (id: string, cwd: string, resume?: string): Promise<{ sessionId: string; transcript: string }> =>
-      ipcRenderer.invoke(IPC.chatOpen, { id, cwd, resume }),
+    open: (id: string, cwd: string, resume?: string, agent?: string): Promise<{ sessionId: string; transcript: string }> =>
+      ipcRenderer.invoke(IPC.chatOpen, { id, cwd, resume, agent }),
     send: (id: string, content: unknown[], echo: { text: string; images: string[] }) =>
       ipcRenderer.send(IPC.chatSend, { id, content, echo }),
     interrupt: (id: string) => ipcRenderer.send(IPC.chatInterrupt, id),

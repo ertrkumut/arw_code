@@ -13,7 +13,7 @@ function useKeys(handler: (e: KeyboardEvent) => void, deps: unknown[]) {
     return () => window.removeEventListener('keydown', h, true)
   }, deps)
 }
-import { useChat } from '../../store/chatStore'
+import { useChat, CODEX_EFFORTS } from '../../store/chatStore'
 
 /** Shared frame: Esc / backdrop close, title row, body, footer. */
 function Frame({ title, sub, onClose, children, footer, wide }: {
@@ -182,6 +182,67 @@ function ModelDialog({ termId, onClose }: { termId: string; onClose: () => void 
   )
 }
 
+/**
+ * Codex models seen in this Codex CLI build. Which ones an account can use varies, so a
+ * full model name can be typed too.
+ */
+const CODEX_MODELS: { id: string; name: string; note: string }[] = [
+  { id: 'default', name: 'Default', note: 'Whatever ~/.codex/config.toml / your plan picks' },
+  { id: 'gpt-5.6', name: 'GPT-5.6', note: 'Newest' },
+  { id: 'gpt-5.5', name: 'GPT-5.5', note: 'Previous generation' },
+  { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', note: 'Tuned for coding' },
+  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', note: 'Long-running coding tasks' }
+]
+
+function CodexModelDialog({ termId, onClose }: { termId: string; onClose: () => void }) {
+  const setCodexModel = useChat(s => s.setCodexModel)
+  const [cur, setCur] = useState<{ model: string | null; effort: string | null }>({ model: null, effort: null })
+  const [effort, setEffort] = useState<string>('default')
+  const [custom, setCustom] = useState('')
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    useChat.getState().control(termId, 'get_model').then((r: any) => {
+      setCur({ model: r?.model ?? null, effort: r?.effort ?? null })
+      setEffort(r?.effort ?? 'default')
+      setIdx(Math.max(0, CODEX_MODELS.findIndex(m => m.id === (r?.model ?? 'default'))))
+    }).catch(() => { /* keep defaults */ })
+  }, [termId])
+  const pick = async (id: string) => { onClose(); await setCodexModel(termId, id, effort) }
+
+  useKeys((e) => {
+    if (document.activeElement?.classList.contains('chd-input')) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setIdx(i => Math.min(CODEX_MODELS.length - 1, i + 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx(i => Math.max(0, i - 1)) }
+    else if (e.key === 'Enter') { e.preventDefault(); void pick(CODEX_MODELS[idx].id) }
+  }, [idx, effort])
+
+  return (
+    <Frame title="Codex model" onClose={onClose}
+      sub={<>Current: <code>{cur.model ?? 'default'}</code>{cur.effort ? <> · <code>{cur.effort}</code> reasoning</> : null} · applies from the next message</>}>
+      <div className="chd-effort">
+        <span className="goto-dir">Reasoning</span>
+        <div className="layout-toggle">
+          {['default', ...CODEX_EFFORTS].map(x => (
+            <button key={x} className={x === effort ? 'active' : ''} onClick={() => setEffort(x)}>{x}</button>
+          ))}
+        </div>
+      </div>
+      <div className="chd-list">
+        {CODEX_MODELS.map((m, i) => (
+          <div key={m.id} className={`goto-row chd-model${i === idx ? ' active' : ''}`} onMouseEnter={() => setIdx(i)} onClick={() => void pick(m.id)}>
+            <span className="chd-model-name">{m.name}</span>
+            <span className="goto-dir">{m.note}</span>
+            {(cur.model ?? 'default') === m.id && <span className="chd-current">current</span>}
+          </div>
+        ))}
+        <form className="chd-custom" onSubmit={(e) => { e.preventDefault(); if (custom.trim()) void pick(custom.trim()) }}>
+          <input className="goto-input chd-input" placeholder="…or a model name, e.g. gpt-5.2-codex" value={custom} onChange={(e) => setCustom(e.target.value)} />
+        </form>
+      </div>
+    </Frame>
+  )
+}
+
 // ---------------------------------------------------------------- /resume
 type Session = Awaited<ReturnType<typeof window.arw.history.list>>[number]
 const ago = (ms: number) => {
@@ -233,8 +294,10 @@ function ResumeDialog({ termId, cwd, onClose }: { termId: string; cwd: string; o
 export function ChatDialogs({ termId, cwd }: { termId: string; cwd: string }) {
   const dialog = useChat(s => s.dialog)
   const close = useChat(s => s.closeDialog)
+  const codex = useChat(s => s.agents[termId] === 'codex')
   if (!dialog || dialog.termId !== termId) return null
+  if (dialog.kind === 'model') return codex ? <CodexModelDialog termId={termId} onClose={close} /> : <ModelDialog termId={termId} onClose={close} />
+  if (codex) return null                       // /mcp and /resume popups talk to Claude
   if (dialog.kind === 'mcp') return <McpDialog termId={termId} onClose={close} />
-  if (dialog.kind === 'model') return <ModelDialog termId={termId} onClose={close} />
   return <ResumeDialog termId={termId} cwd={cwd} onClose={close} />
 }

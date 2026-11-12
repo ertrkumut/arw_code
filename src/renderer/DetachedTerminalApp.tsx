@@ -6,6 +6,7 @@ import { ImageStrip } from './components/ImageStrip'
 import { ImageLightbox } from './components/ImageLightbox'
 import { AssetsPanel } from './components/AssetsPanel'
 import { ChatView } from './components/chat/ChatView'
+import { isChatAgent } from '@shared/agents'
 import { oceanic } from './theme'
 import type { TermState } from '@shared/types'
 import type { AgentId } from '@shared/agents'
@@ -23,8 +24,8 @@ function DetachedXterm({ termId, cwd, agent }: { termId: string; cwd: string; ag
   const elRef = useTerminalIO(termId, cwd, agent)
   return (
     <>
-      {(agent ?? 'claude') === 'claude'
-        ? <ChatView termId={termId} cwd={cwd} project={null} />
+      {isChatAgent(agent)
+        ? <ChatView termId={termId} cwd={cwd} project={null} agent={agent} />
         : <DetachedXterm termId={termId} cwd={cwd} agent={agent} />}
     </>
   )
@@ -60,8 +61,8 @@ export function DetachedTerminalApp({ termId, name, color, cwd, agent }:
           <Dot state={state} /><AgentBadge agent={agent} /><span className="tname">{name}</span>
         </span>
       </div>
-      {(agent ?? 'claude') === 'claude'
-        ? <ChatView termId={termId} cwd={cwd} project={null} />
+      {isChatAgent(agent)
+        ? <ChatView termId={termId} cwd={cwd} project={null} agent={agent} />
         : <DetachedXterm termId={termId} cwd={cwd} agent={agent} />}
       <AssetsPanel />
       <ImageLightbox />
