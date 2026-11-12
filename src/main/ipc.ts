@@ -13,6 +13,7 @@ import { DapSession, findMonoDbg } from './debugAdapter'
 import { BrowserWindow } from 'electron'
 import type { WindowManager } from './windows'
 import { ChatManager, readTranscript, takeReportedSession, type ContentBlock } from './chatManager'
+import { CodexChatManager, readCodexTranscript } from './codexChat'
 import { app } from 'electron'
 import { AgentEditTracker } from './agentEdits'
 import { getIndex } from './codeIndex'
@@ -33,28 +34,38 @@ export function registerIpc(wm: WindowManager, eventUrl: () => string) {
   const edits = new AgentEditTracker((path, edit) => send(IPC.editsChanged, { path, edit }))
   ipcMain.handle(IPC.editsList, () => edits.list())
   ipcMain.on(IPC.editsSet, (_e, p: { path: string; baseline: string | null }) => edits.set(p.path, p.baseline))
-  const chat = new ChatManager((id, event) => { send(IPC.chatEvent, { id, event }); edits.noteEvent(event) }, eventUrl)
-  app.on('before-quit', () => chat.killAll())
-  ipcMain.handle(IPC.chatOpen, async (_e, p: { id: string; cwd: string; resume?: string }) => {
-    const { sessionId } = chat.open(p.id, p.cwd, p.resume)
+  const claudeChat = new ChatManager((id, event) => { send(IPC.chatEvent, { id, event }); edits.noteEvent(event) }, eventUrl)
+  // Codex panes are chats too, one `codex exec` per prompt (see codexChat.ts).
+  const codexChat = new CodexChatManager((id, event) => send(IPC.chatEvent, { id, event }))
+  const chatOf = (id: string) => (codexChat.has(id) ? codexChat : claudeChat)
+  const transcriptOf = (id: string, cwd: string, sessionId: string) =>
+    codexChat.has(id) ? readCodexTranscript(sessionId) : readTranscript(cwd, sessionId)
+  const chat = {
+    session: (id: string) => chatOf(id).session(id),
+    kill: (id: string) => { claudeChat.kill(id); codexChat.kill(id) }
+  }
+  app.on('before-quit', () => { claudeChat.killAll(); codexChat.killAll() })
+  ipcMain.handle(IPC.chatOpen, async (_e, p: { id: string; cwd: string; resume?: string; agent?: string }) => {
+    const { sessionId } = (p.agent === 'codex' ? codexChat : claudeChat).open(p.id, p.cwd, p.resume)
     // Always read: a torn-off window re-opening a running chat needs the history too.
-    return { sessionId, transcript: await readTranscript(p.cwd, sessionId) }
+    return { sessionId, transcript: await transcriptOf(p.id, p.cwd, sessionId) }
   })
   ipcMain.on(IPC.chatSend, (_e, p: { id: string; content: ContentBlock[]; echo: { text: string; images: string[] } }) =>
-    chat.send(p.id, p.content, p.echo))
-  ipcMain.on(IPC.chatInterrupt, (_e, id: string) => chat.interrupt(id))
-  ipcMain.handle(IPC.chatReset, (_e, id: string) => chat.reset(id))
+    chatOf(p.id).send(p.id, p.content, p.echo))
+  ipcMain.on(IPC.chatInterrupt, (_e, id: string) => chatOf(id).interrupt(id))
+  ipcMain.handle(IPC.chatReset, (_e, id: string) => chatOf(id).reset(id))
   ipcMain.handle(IPC.chatControl, (_e, p: { id: string; subtype: string; extra?: Record<string, unknown> }) =>
-    chat.control(p.id, p.subtype, p.extra ?? {}))
+    codexChat.has(p.id) ? codexChat.control(p.id, p.subtype, p.extra ?? {}) :claudeChat.control(p.id, p.subtype, p.extra ?? {}))
   ipcMain.handle(IPC.chatSwitch, async (_e, p: { id: string; sessionId: string }) => {
-    const r = chat.switchSession(p.id, p.sessionId)
+    if (codexChat.has(p.id)) return null
+    const r = claudeChat.switchSession(p.id, p.sessionId)
     return r ? { sessionId: r.sessionId, transcript: await readTranscript(r.cwd, r.sessionId) } : null
   })
-  ipcMain.handle(IPC.chatSuspend, (_e, id: string) => chat.suspend(id))
+  ipcMain.handle(IPC.chatSuspend, (_e, id: string) => chatOf(id).suspend(id))
   ipcMain.handle(IPC.chatReturn, async (_e, id: string) => {
     mgr.kill(`${id}:tui`)                       // the terminal-mode pty of this pane
-    const r = chat.resumeAfterTerminal(id, takeReportedSession(`${id}:tui`))
-    return r ? { sessionId: r.sessionId, transcript: await readTranscript(r.cwd, r.sessionId) } : null
+    const r = codexChat.has(id) ? codexChat.resumeAfterTerminal(id) : claudeChat.resumeAfterTerminal(id, takeReportedSession(`${id}:tui`))
+    return r ? { sessionId: r.sessionId, transcript: await transcriptOf(id, r.cwd, r.sessionId) } : null
   })
 
   wm.onKill = (id) => { mgr.kill(id); mgr.kill(`${id}:tui`); chat.kill(id) }   // a torn-off window closing kills its shell / chat

@@ -145,6 +145,11 @@ export function applyEvent(s: ChatState, e: any, now = Date.now()): ChatState {
     case 'arw_notice':
       return { ...s, items: [...s.items, { kind: 'notice', id: nid('n'), text: String(e.text ?? ''), tone: e.tone === 'error' ? 'error' : 'info' }] }
 
+    // Codex's context fill, read from its session file after each turn (see codexChat.ts).
+    case 'arw_codex_usage':
+      return typeof e.contextTokens === 'number'
+        ? { ...s, contextTokens: e.contextTokens, contextWindow: typeof e.contextWindow === 'number' ? e.contextWindow : s.contextWindow } : s
+
     case 'arw_exit':
       // Claude process ended. Mid-turn means it crashed or was killed.
       if (!s.busy) return s

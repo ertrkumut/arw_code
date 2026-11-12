@@ -93,7 +93,11 @@ describe('PtyManager agent launch command', () => {
 
     const c = new PtyManager(vi.fn(), vi.fn())
     c.spawn({ ...opts, agent: 'codex', resume: sid })
-    expect(launched()).toBe(AGENTS.codex.command + '\r')
+    // A Codex chat pane's terminal mode continues its thread.
+    expect(launched()).toBe(`${AGENTS.codex.command} resume ${sid}\r`)
     expect(c.claudeSession(opts.id)).toBeUndefined()
+
+    new PtyManager(vi.fn(), vi.fn()).spawn({ ...opts, agent: 'codex', resume: 'x; rm -rf /' })
+    expect(launched()).toBe(AGENTS.codex.command + '\r')
   })
 })

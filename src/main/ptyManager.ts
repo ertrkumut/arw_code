@@ -65,6 +65,9 @@ export class PtyManager {
       const sid = resume ?? pinned ?? randomUUID()
       this.sessions.set(opts.id, { id: sid, cwd: opts.cwd })
       args = (resume ? ` --resume ${sid}` : ` --session-id ${sid}`) + ` --model ${CLAUDE_MODEL}`
+    } else if (def.id === 'codex' && opts.resume && SESSION_ID_RE.test(opts.resume)) {
+      // A Codex chat pane's terminal mode continues the chat's thread.
+      args = ` resume ${opts.resume}`
     }
     p.write(def.command + args + (opts.exitWithAgent ? exitAfterAgent() : '') + '\r')
   }

@@ -85,6 +85,9 @@ export function resolveAgent(id?: string | null): AgentDef {
   return (id != null && AGENTS[id as AgentId]) || AGENTS[DEFAULT_AGENT]
 }
 
+/** Claude and Codex panes are chats; every other agent is a real terminal. */
+export const isChatAgent = (agent?: AgentId | null) => (agent ?? DEFAULT_AGENT) === 'claude' || agent === 'codex'
+
 /** Narrow an arbitrary persisted value back to a known agent id. */
 export function toAgentId(v: unknown): AgentId {
   return typeof v === 'string' && v in AGENTS ? (v as AgentId) : DEFAULT_AGENT
