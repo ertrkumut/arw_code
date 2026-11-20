@@ -8,6 +8,8 @@ import { PathText } from './PathLinks'
 import { ToolCard } from './ToolCard'
 import { ChatDialogs } from './ChatDialogs'
 import { UsageBar } from './UsageBar'
+import { VoiceControls, VoiceStatusLine } from './VoiceControls'
+import { voice } from '../../voice/engine'
 import { ImageStrip } from '../ImageStrip'
 import { fuzzyScore } from '../../ide/fuzzy'
 import { FileIcon } from '../FileIcons'
@@ -125,6 +127,12 @@ export function ChatView({ termId, cwd, project, resume, agent }: {
     return { top, childrenOf }
   }, [chat.items])
 
+  /** Stop the turn (and Claude's voice, if it's talking). */
+  const stop = () => {
+    useChat.getState().interrupt(termId)
+    if (voice.isActive(termId)) voice.hush()
+  }
+
   const send = () => {
     const text = draft
     if (!text.trim() && !pending.length) return
@@ -222,7 +230,7 @@ export function ChatView({ termId, cwd, project, resume, agent }: {
       if (e.key === 'Escape') { e.preventDefault(); setMention(null); return }
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey) { e.preventDefault(); send(); return }
-    if (e.key === 'Escape' && chat.busy) { e.preventDefault(); useChat.getState().interrupt(termId); return }
+    if (e.key === 'Escape' && chat.busy) { e.preventDefault(); stop(); return }
     // Ctrl+I: images used in this conversation.
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'i') { e.preventDefault(); useApp.getState().openAssets(termId, cwd) }
   }
@@ -305,6 +313,7 @@ export function ChatView({ termId, cwd, project, resume, agent }: {
             ))}
           </div>
         )}
+        <VoiceStatusLine termId={termId} />
         <ImageStrip termId={termId} />
         <div className={`ch-input-box${chat.busy ? ' busy' : ''}`}>
           <textarea ref={inputRef} className="ch-input" rows={1} value={draft} spellCheck={false}
@@ -313,8 +322,9 @@ export function ChatView({ termId, cwd, project, resume, agent }: {
           <div className="ch-input-bar">
             <span className="ch-model" title="Model">{codex ? `Codex${chat.model ? ' · ' + chat.model : ''}` : chat.model ?? 'Claude Code'}</span>
             <span style={{ flex: 1 }} />
+            <VoiceControls termId={termId} who={who} />
             {chat.busy && (
-              <button className="ch-stop" title="Stop (Esc)" onClick={() => useChat.getState().interrupt(termId)}>
+              <button className="ch-stop" title="Stop (Esc)" onClick={stop}>
                 <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
               </button>
             )}

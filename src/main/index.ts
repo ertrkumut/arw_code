@@ -27,6 +27,10 @@ if (process.platform === 'darwin') {
   } catch (e) { console.error('[arw] login-shell PATH lookup failed:', e) }
 }
 
+// Voice mode runs Whisper / Kokoro on the ONNX WASM runtime when there's no WebGPU; its
+// multi-threaded build needs SharedArrayBuffer (otherwise it falls back to one thread).
+app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer')
+
 const wm = new WindowManager()
 
 // Hold a single-instance lock. Two processes contending for Electron's GPU/disk

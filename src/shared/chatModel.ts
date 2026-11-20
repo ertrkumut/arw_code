@@ -11,6 +11,8 @@
  * Pure and framework-free: the renderer keeps one ChatState per pane and folds events in.
  */
 
+import { stripVoiceNote } from './speech'
+
 export interface DiffHunk { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] }
 
 export type ChatItem =
@@ -115,7 +117,7 @@ export function commandOutput(content: unknown): string | null {
 function promptOf(content: unknown): { text: string; images: string[] } | null {
   const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []
   if (blocks.some((b: any) => b?.type === 'tool_result')) return null
-  const text = blocks.filter((b: any) => b?.type === 'text').map((b: any) => b.text as string).join('\n').trim()
+  const text = stripVoiceNote(blocks.filter((b: any) => b?.type === 'text').map((b: any) => b.text as string).join('\n').trim())
   const images = blocks
     .filter((b: any) => b?.type === 'image' && b.source?.type === 'base64')
     .map((b: any) => `data:${b.source.media_type};base64,${b.source.data}`)
