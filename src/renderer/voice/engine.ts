@@ -7,15 +7,16 @@ import { useApp } from '../store/appStore'
 /**
  * Voice conversation with a chat pane, all on this machine:
  *
- *   mic ─ Silero VAD ─ (you stop talking) ─ Whisper ─ prompt ─▶ Claude
+ *   mic ─ Silero VAD ─ (you stop talking) ─ Moonshine ─ prompt ─▶ Claude
  *   Claude's streamed reply ─ SpeechChunker (sentences) ─ Kokoro ─ speakers
  *
  * Talking while Claude speaks cuts it off: playback stops, the turn is interrupted, and the
- * next prompt tells Claude how far it got. Models download once (~550 MB) into the
- * browser cache; Whisper and Kokoro each run in a worker (WebGPU when available).
+ * next prompt tells Claude how far it got. The mic and VAD live here; Moonshine and Kokoro
+ * run natively in a separate process (main/voiceHost.ts) that exists only while voice is
+ * on. Models download once (~400 MB) into userData/voice-models.
  */
 
-/** Where the VAD / ONNX runtime files are served from (copied there at build time). */
+/** Where the VAD files are served from (copied there at build time). */
 const assetBase = () => new URL('voice/', document.baseURI).href
 
 /** VAD sensitivity: normal, and stricter while Claude talks so its own voice doesn't count. */
@@ -28,8 +29,9 @@ class VoiceEngine {
   private termId: string | null = null
   /** Bumped on every start/stop so stale async work can tell it's obsolete. */
   private session = 0
-  private stt: Worker | null = null
-  private tts: Worker | null = null
+  /** Voice process connected and loaded. */
+  private host = false
+  private offHost: (() => void) | null = null
   private vad: MicVAD | null = null
   private ctx: AudioContext | null = null
   private gain: GainNode | null = null
@@ -123,8 +125,9 @@ class VoiceEngine {
     this.cancelSpeech()
     this.offEvents?.(); this.offEvents = null
     void this.vad?.destroy(); this.vad = null
-    this.stt?.terminate(); this.stt = null
-    this.tts?.terminate(); this.tts = null
+    this.offHost?.(); this.offHost = null
+    if (this.host || this.session) window.arw.voice.stop()
+    this.host = false
     void this.ctx?.close().catch(() => {}); this.ctx = null; this.gain = null
     for (const w of this.sttWaiters.values()) w('')
     this.sttWaiters.clear()
@@ -164,23 +167,19 @@ class VoiceEngine {
   // ── models ──────────────────────────────────────────────────────────────
 
   private loadModels(session: number): Promise<void> {
-    const base = assetBase()
-    const boot = (worker: Worker, extra: Record<string, unknown> = {}) => new Promise<void>((resolve, reject) => {
-      worker.addEventListener('message', (e) => {
-        const m = e.data
+    return new Promise<void>((resolve, reject) => {
+      this.offHost = window.arw.voice.onEvent((m) => {
         if (session !== this.session) return
         if (m.type === 'progress') this.onDownload(m.file, m.loaded, m.total)
-        else if (m.type === 'ready') { console.info('[voice] model ready on', m.device); resolve() }
-        else if (m.type === 'error' && m.id == null) reject(new Error(m.message))
+        else if (m.type === 'ready') { this.host = true; resolve() }
+        else if (m.type === 'error' && m.id == null) {
+          if (!this.host) reject(new Error(m.message))
+          else { this.teardown(); this.set({ status: 'error', error: m.message, progress: null }) }
+        } else if (m.type === 'text' || (m.type === 'error' && m.id != null)) this.onSttMessage(m)
+        if (m.type === 'audio' || (m.type === 'error' && m.id != null)) this.onTtsMessage(m)
       })
-      worker.addEventListener('error', (e) => reject(new Error(e.message || 'Voice worker crashed')))
-      worker.postMessage({ type: 'init', base, ...extra })
+      window.arw.voice.start(useVoice.getState().voice).catch(reject)
     })
-    this.stt = new Worker(new URL('./stt.worker.ts', import.meta.url), { type: 'module' })
-    this.tts = new Worker(new URL('./tts.worker.ts', import.meta.url), { type: 'module' })
-    this.stt.addEventListener('message', (e) => this.onSttMessage(e.data))
-    this.tts.addEventListener('message', (e) => this.onTtsMessage(e.data))
-    return Promise.all([boot(this.stt), boot(this.tts, { voice: useVoice.getState().voice })]).then(() => {})
   }
 
   private onDownload(file: string, loaded: number, total: number) {
@@ -207,13 +206,13 @@ class VoiceEngine {
 
   private async onSpeechEnd(audio: Float32Array, session: number) {
     this.hearing = false
-    if (!this.stt || !this.termId) return
+    if (!this.host || !this.termId) return
     this.transcribing++
     this.refresh()
     const id = this.nextId++
     const text = await new Promise<string>((resolve) => {
       this.sttWaiters.set(id, resolve)
-      this.stt!.postMessage({ type: 'transcribe', id, audio }, [audio.buffer])
+      window.arw.voice.send({ type: 'transcribe', id, audio })
     })
     this.transcribing = Math.max(0, this.transcribing - 1)
     if (session !== this.session || !this.termId) return
@@ -306,12 +305,12 @@ class VoiceEngine {
   }
 
   private say(chunks: string[]) {
-    if (!this.tts || !chunks.length) return
+    if (!this.host || !chunks.length) return
     const { voice } = useVoice.getState()
     for (const text of chunks) {
       const job: Job = { id: this.nextId++, text, audio: null }
       this.jobs.push(job)
-      this.tts.postMessage({ type: 'speak', id: job.id, gen: this.gen, text, voice })
+      window.arw.voice.send({ type: 'speak', id: job.id, gen: this.gen, text, voice })
     }
     this.vad?.setOptions(WHILE_SPEAKING)
     this.refresh()
@@ -359,7 +358,7 @@ class VoiceEngine {
 
   private cancelSpeech() {
     this.gen++
-    this.tts?.postMessage({ type: 'cancel', gen: this.gen })
+    if (this.host) window.arw.voice.send({ type: 'cancel', gen: this.gen })
     const src = this.source
     this.source = null
     try { src?.stop() } catch { /* not started */ }

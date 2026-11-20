@@ -26,7 +26,12 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "files": [
+        "out/**/*",
+        "!node_modules/onnxruntime-node/script/**",
+        "!node_modules/onnxruntime-node/bin/napi-v3/{linux,darwin,win32/arm64}/**"
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -48,11 +53,20 @@
       ],
       "icon": "build/icon-mac.png",
       "category": "public.app-category.developer-tools",
-      "identity": null
+      "identity": null,
+      "files": [
+        "out/**/*",
+        "!node_modules/onnxruntime-node/script/**",
+        "!node_modules/onnxruntime-node/bin/napi-v3/{linux,win32}/**",
+        "!node_modules/onnxruntime-node/bin/napi-v3/darwin/x64/**"
+      ]
     },
     "dmg": {
       "title": "ARWCode"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**"
+    ]
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
@@ -82,6 +96,7 @@
     "dompurify": "^3.1.6",
     "marked": "^12.0.2",
     "monaco-editor": "^0.52.2",
+    "onnxruntime-node": "1.21.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "zustand": "^4.5.0"

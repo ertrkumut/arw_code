@@ -144,6 +144,17 @@ const api = {
       return () => ipcRenderer.removeListener(IPC.chatEvent, h)
     },
   },
+  /** Voice mode's model process (Moonshine + Kokoro, see main/voiceHost.ts). */
+  voice: {
+    start: (voice: string): Promise<void> => ipcRenderer.invoke(IPC.voiceStart, { voice }),
+    send: (m: unknown) => ipcRenderer.send(IPC.voiceSend, m),
+    stop: () => ipcRenderer.send(IPC.voiceStop),
+    onEvent: (cb: (m: any) => void) => {
+      const h = (_e: IpcRendererEvent, m: any) => cb(m)
+      ipcRenderer.on(IPC.voiceEvent, h)
+      return () => ipcRenderer.removeListener(IPC.voiceEvent, h)
+    },
+  },
   /** Claude's unreviewed file edits (see shared/agentEdits.ts). */
   edits: {
     list: (): Promise<AgentEdit[]> => ipcRenderer.invoke(IPC.editsList),

@@ -14,6 +14,10 @@ export const IPC = {
   chatReturn: 'chat:return',   // renderer -> main (invoke): back to chat; returns the fresh transcript
   chatControl: 'chat:control', // renderer -> main (invoke): control_request -> response body
   chatSwitch: 'chat:switch',   // renderer -> main (invoke): continue another saved session in this pane
+  voiceStart: 'voice:start',    // renderer -> main (invoke): start the voice model process (answers come as voiceEvent)
+  voiceSend: 'voice:send',      // renderer -> main: message for the voice process (transcribe / speak / cancel)
+  voiceStop: 'voice:stop',      // renderer -> main: kill the voice process
+  voiceEvent: 'voice:event',    // main -> renderer: message from the voice process
   chatEvent: 'chat:event',    // main -> renderer: { id, event } one Claude stream-json event
   ptyData: 'pty:data',        // main -> renderer
   ptyExit: 'pty:exit',        // main -> renderer

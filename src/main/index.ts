@@ -6,6 +6,7 @@ import { noteSession } from './chatManager'
 import { IPC } from '@shared/constants'
 import { installHooks } from './hookInstaller'
 import { WindowManager } from './windows'
+import { registerVoice } from './voiceService'
 
 // The installed .exe and this dev build otherwise share one userData dir — and therefore
 // one single-instance lock — so launching the dev build while the installed app is open
@@ -26,10 +27,6 @@ if (process.platform === 'darwin') {
     if (m?.[1]) process.env.PATH = m[1]
   } catch (e) { console.error('[arw] login-shell PATH lookup failed:', e) }
 }
-
-// Voice mode runs Whisper / Kokoro on the ONNX WASM runtime when there's no WebGPU; its
-// multi-threaded build needs SharedArrayBuffer (otherwise it falls back to one thread).
-app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer')
 
 const wm = new WindowManager()
 
@@ -60,6 +57,7 @@ app.whenReady().then(async () => {
   })
   await bridge.start()
   const mgr = registerIpc(wm, () => bridge.url())
+  registerVoice()
   app.on('before-quit', () => { mgr.killAll(); bridge.stop() })
   wm.createMain()
   // macOS: clicking the Dock icon with no windows open reopens the main window.
